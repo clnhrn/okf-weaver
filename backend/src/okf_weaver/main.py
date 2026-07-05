@@ -91,7 +91,7 @@ def ingest(request: Request, req: IngestRequest) -> SchemaIR:
 def generate(
     request: Request, body: GenerateRequest, client: Any = Depends(get_client)
 ) -> StreamingResponse:
-    """Stream one OKF table per source table (SSE), then a final assembled bundle.
+    """Stream token deltas + one validated OKF table per source table (SSE), then the assembled bundle.
 
     Optional ``body.context`` is threaded into every per-table prompt.
     """
@@ -100,11 +100,14 @@ def generate(
     def stream() -> Iterator[str]:
         tables = []
         usage: dict[str, int] = {}
-        for okf_table in generate_bundle(
+        for kind, name, payload in generate_bundle(
             schema, client=client, context=body.context, usage=usage
         ):
-            tables.append(okf_table)
-            yield _sse("table", okf_table.model_dump())
+            if kind == "token":
+                yield _sse("token", {"table": name, "delta": payload})
+            else:  # "table" — a validated OKFTable
+                tables.append(payload)
+                yield _sse("table", payload.model_dump())
         # Tables stream in completion order; the bundle keeps the schema order.
         order = [t.name for t in schema.tables]
         tables.sort(key=lambda t: order.index(t.name))
