@@ -199,6 +199,7 @@ Every request and response body is a **Pydantic model**, so FastAPI validates in
 | Backend               | FastAPI (Python), managed with `uv`                                                                  |
 | Validation / models   | **Pydantic v2** — single source of truth for `SchemaIR`, `OKFBundle`, AI tool output, and API bodies |
 | AI                    | Anthropic Python SDK (Claude)                                                                        |
+| Rate limiting         | `slowapi` (per-client-IP)                                                                            |
 | SQL parsing           | `sqlglot`                                                                                            |
 | OKF (de)serialization | `PyYAML` + templated Markdown                                                                        |
 | Frontend              | Next.js (TypeScript, React)                                                                          |
@@ -224,6 +225,7 @@ Backend follows TDD (red-green-refactor), one test file per module:
 ## 9. Non-Functional Notes
 
 - **Security/privacy** — API key server-side only; **stateless: schema and bundle live in memory for the request only, nothing is persisted or logged**. Only schema *metadata* (table/column names + types) is sent to Anthropic — never row data. A UI notice warns users not to paste secrets. No redaction feature in v1 (see PRD §6).
+- **Rate limiting** — per-client-IP limits via `slowapi` (`get_remote_address`): `/api/generate` **10/min** (strictest — it spends tokens), `/api/ingest` **30/min**, `/api/download` **30/min**, `/api/validate` **60/min**; `/api/health` is unlimited (deploy/CI probes). `429` responses pass back through the CORS middleware so the browser renders a real "rate limited" error rather than an opaque network failure. The limiter uses an **in-memory store**, which is correct for the single-instance Render deployment; if the backend is ever scaled to multiple instances, point `slowapi` at a shared Redis so limits are global rather than per-instance.
 - **Cost/latency** — estimated **<$0.30/bundle, median <60s** for a ~20-table/~200-column schema (guardrail <$0.50); the parsed-preview step lets users abort before spending tokens. Numbers to be confirmed on real inputs (PRD §6).
 - **Scale limit** — context window is not the constraint (1 table per call); the cap is practical: **soft limit ~100 tables / ~2,000 columns**, with a warning + "split the schema" suggestion above that.
 - **Portability** — the whole point: output is vendor-neutral OKF, downloadable and usable with any agent/MCP server.
