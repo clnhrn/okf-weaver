@@ -384,6 +384,129 @@ button {
   background: var(--bg);
 }
 
+/* File viewer right pane: toolbar + rendered/raw body */
+.files-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.files-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.files-path {
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seg.small button {
+  padding: 0.15rem 0.5rem;
+}
+
+.md-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.85rem 1.1rem;
+}
+.md-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  margin: 0 0 0.9rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 11px;
+}
+.md-meta-row {
+  display: flex;
+  gap: 0.35rem;
+}
+.md-meta dt {
+  color: var(--faint);
+}
+.md-meta dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.md-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.md-body h1 {
+  font-size: 1.15rem;
+  margin: 1.1rem 0 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.md-body h1:first-child {
+  margin-top: 0;
+}
+.md-body h2 {
+  font-size: 1rem;
+  margin: 1rem 0 0.4rem;
+}
+.md-body p {
+  margin: 0.5rem 0;
+}
+.md-body a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.md-body a:hover {
+  text-decoration: underline;
+}
+.md-body ul {
+  margin: 0.4rem 0;
+  padding-left: 1.2rem;
+}
+.md-body li {
+  margin: 0.15rem 0;
+}
+.md-body code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--panel-2);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+}
+.md-body table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  font-size: 12px;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+.md-body th {
+  background: var(--panel);
+  color: var(--dim);
+  font-weight: 600;
+}
+.md-body td code {
+  padding: 0;
+  background: transparent;
+}
+
 .warnbar {
   border: 1px solid var(--med);
   border-radius: 6px;
