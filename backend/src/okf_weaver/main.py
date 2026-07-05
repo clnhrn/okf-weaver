@@ -20,7 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from okf_weaver.ai import generate_bundle, make_client
-from okf_weaver.ingest import parse_dbt_manifest, parse_sql_ddl
+from okf_weaver.ingest import detect_format, parse_dbt_manifest, parse_sql_ddl
 from okf_weaver.models import (
     IngestRequest,
     OKFBundle,
@@ -63,9 +63,13 @@ def health() -> dict[str, str]:
 @app.post("/api/ingest")
 @limiter.limit("30/minute")
 def ingest(request: Request, req: IngestRequest) -> SchemaIR:
-    """Parse SQL DDL or a dbt manifest into a `SchemaIR` preview (no tokens spent)."""
+    """Parse SQL DDL or a dbt manifest into a `SchemaIR` preview (no tokens spent).
+
+    ``format`` is auto-detected from the content when the request omits it.
+    """
+    fmt = req.format or detect_format(req.content)
     try:
-        if req.format is SourceFormat.SQL:
+        if fmt is SourceFormat.SQL:
             return parse_sql_ddl(req.content)
         try:
             manifest = json.loads(req.content)

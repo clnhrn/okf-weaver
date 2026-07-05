@@ -57,6 +57,22 @@ def test_ingest_sql_returns_schema_ir(client):
     assert body["tables"][0]["name"] == "orders"
 
 
+def test_ingest_auto_detects_sql_without_format(client):
+    resp = client.post("/api/ingest", json={"content": DDL})
+    assert resp.status_code == 200
+    assert resp.json()["source_format"] == "sql"
+
+
+def test_ingest_auto_detects_dbt_manifest_without_format(client):
+    manifest = json.dumps(
+        {"nodes": {"model.s.o": {"resource_type": "model", "name": "o",
+                                 "columns": {"id": {"name": "id"}}}}}
+    )
+    resp = client.post("/api/ingest", json={"content": manifest})
+    assert resp.status_code == 200
+    assert resp.json()["source_format"] == "dbt_manifest"
+
+
 def test_ingest_rejects_unparseable_sql_with_422(client):
     resp = client.post("/api/ingest", json={"format": "sql", "content": "SELECT 1;"})
     assert resp.status_code == 422

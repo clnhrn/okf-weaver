@@ -2,7 +2,7 @@
 
 import pytest
 
-from okf_weaver.ingest import parse_dbt_manifest, parse_sql_ddl
+from okf_weaver.ingest import detect_format, parse_dbt_manifest, parse_sql_ddl
 from okf_weaver.models import SourceFormat
 
 DDL = """
@@ -93,3 +93,16 @@ def test_parse_dbt_manifest_preserves_descriptions_and_defaults_missing_type():
 def test_parse_dbt_manifest_raises_when_no_tables():
     with pytest.raises(ValueError):
         parse_dbt_manifest({"nodes": {}, "sources": {}})
+
+
+# --- format auto-detection ---------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ['{"nodes": {}}', '  \n  {"x": 1}', "[1, 2]"])
+def test_detect_format_json_is_dbt_manifest(text):
+    assert detect_format(text) is SourceFormat.DBT_MANIFEST
+
+
+@pytest.mark.parametrize("text", [DDL, "  CREATE TABLE t (id INT);", "select 1"])
+def test_detect_format_non_json_is_sql(text):
+    assert detect_format(text) is SourceFormat.SQL

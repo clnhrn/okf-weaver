@@ -18,7 +18,6 @@ function band(c: number): "high" | "medium" | "low" {
 }
 
 export default function Home() {
-  const [format, setFormat] = useState<"sql" | "dbt_manifest">("sql");
   const [content, setContent] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [tables, setTables] = useState<OKFTable[]>([]);
@@ -32,7 +31,6 @@ export default function Home() {
     const file = e.target.files?.[0];
     if (!file) return;
     setContent(await file.text());
-    setFormat(file.name.toLowerCase().endsWith(".json") ? "dbt_manifest" : "sql");
     setFileName(file.name);
     e.target.value = ""; // allow re-selecting the same file
   }
@@ -48,10 +46,10 @@ export default function Home() {
       const ing = await fetch(`${API}/api/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format, content }),
+        body: JSON.stringify({ content }),
       });
       if (!ing.ok) throw new Error((await ing.json()).detail ?? "Could not parse schema");
-      const schema = await ing.json();
+      const schema = await ing.json(); // format auto-detected server-side
       setExpected(schema.tables.map((t: { name: string }) => t.name));
 
       // 2. Stream generation (SSE), rendering each table as it lands.
@@ -119,10 +117,6 @@ export default function Home() {
       <p className="sub">Turn a warehouse schema into a validated, portable OKF bundle.</p>
 
       <div className="row">
-        <select value={format} onChange={(e) => setFormat(e.target.value as typeof format)}>
-          <option value="sql">SQL DDL</option>
-          <option value="dbt_manifest">dbt manifest.json</option>
-        </select>
         <label className="file-btn">
           Upload .sql / .json
           <input type="file" accept=".sql,.json,.txt" onChange={onFile} hidden />
@@ -130,7 +124,7 @@ export default function Home() {
         {fileName && <span className="notice">Loaded {fileName}</span>}
       </div>
       <textarea
-        placeholder={format === "sql" ? "CREATE TABLE orders (...);" : "Paste manifest.json"}
+        placeholder="Paste SQL DDL (CREATE TABLE …) or a dbt manifest.json — the format is detected automatically."
         value={content}
         onChange={(e) => {
           setContent(e.target.value);

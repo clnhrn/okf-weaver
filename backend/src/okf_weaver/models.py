@@ -107,10 +107,10 @@ class OKFBundle(BaseModel):
 
 
 class IngestRequest(BaseModel):
-    """Body for ``POST /api/ingest``."""
+    """Body for ``POST /api/ingest``. ``format`` is auto-detected when omitted."""
 
-    format: SourceFormat
     content: str
+    format: SourceFormat | None = None
 
 
 class ValidationResult(BaseModel):

@@ -1,0 +1,42 @@
+{
+  "nodes": {
+    "model.shop.dim_customers": {
+      "resource_type": "model",
+      "name": "dim_customers",
+      "description": "One row per customer with lifetime attributes.",
+      "columns": {
+        "customer_id": { "name": "customer_id", "data_type": "integer", "description": "Surrogate key for the customer." },
+        "email": { "name": "email", "data_type": "varchar", "description": "Primary contact email." },
+        "signup_date": { "name": "signup_date", "data_type": "date", "description": "" },
+        "lifetime_value": { "name": "lifetime_value", "data_type": "numeric", "description": "" }
+      }
+    },
+    "model.shop.fct_orders": {
+      "resource_type": "model",
+      "name": "fct_orders",
+      "description": "One row per placed order.",
+      "columns": {
+        "order_id": { "name": "order_id", "data_type": "integer", "description": "Order surrogate key." },
+        "customer_id": { "name": "customer_id", "data_type": "integer", "description": "" },
+        "status": { "name": "status", "data_type": "varchar", "description": "" },
+        "amount": { "name": "amount", "data_type": "numeric", "description": "" },
+        "currency": { "name": "currency", "data_type": "char", "description": "" }
+      }
+    },
+    "test.shop.not_null_fct_orders_order_id": {
+      "resource_type": "test",
+      "name": "not_null_fct_orders_order_id"
+    }
+  },
+  "sources": {
+    "source.shop.stripe.charges": {
+      "resource_type": "source",
+      "name": "charges",
+      "description": "Raw Stripe charge events.",
+      "columns": {
+        "id": { "name": "id", "data_type": "varchar", "description": "Stripe charge id." },
+        "amount": { "name": "amount", "data_type": "integer", "description": "Amount in the smallest currency unit (cents)." }
+      }
+    }
+  }
+}
