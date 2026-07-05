@@ -5,6 +5,7 @@ import BundleTree from "./BundleTree";
 import CodeEditor from "./CodeEditor";
 import FileTree from "./FileTree";
 import MarkdownView from "./MarkdownView";
+import ErdView from "./ErdView";
 import { EXAMPLE_MANIFEST, EXAMPLE_SQL } from "./examples";
 import type { Bundle, OKFColumn, OKFTable } from "./types";
 import { useTheme, type ThemeChoice } from "./useTheme";
@@ -36,7 +37,7 @@ export default function Home() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"edit" | "files">("edit");
+  const [view, setView] = useState<"edit" | "files" | "erd">("edit");
   const [files, setFiles] = useState<Record<string, string> | null>(null);
   const [selectedFile, setSelectedFile] = useState("index.md");
   const [fileMode, setFileMode] = useState<"rendered" | "raw">("rendered");
@@ -336,6 +337,9 @@ export default function Home() {
                 <button className={view === "files" ? "on" : ""} onClick={openFiles}>
                   Files
                 </button>
+                <button className={view === "erd" ? "on" : ""} onClick={() => setView("erd")}>
+                  ERD
+                </button>
               </div>
             )}
             <span className="grow" />
@@ -368,6 +372,8 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+            ) : view === "erd" ? (
+              <ErdView tables={tables} />
             ) : view === "files" && files ? (
               <div className="files-view">
                 <div className="files-tree">

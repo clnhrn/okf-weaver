@@ -11,8 +11,10 @@
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-sql": "^6.10.0",
+    "@dagrejs/dagre": "^3.0.0",
     "@uiw/codemirror-themes": "^4.25.10",
     "@uiw/react-codemirror": "^4.25.10",
+    "@xyflow/react": "^12.11.1",
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
