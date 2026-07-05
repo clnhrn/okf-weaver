@@ -41,6 +41,16 @@ def test_parse_sql_ddl_raises_when_no_create_table():
         parse_sql_ddl("SELECT 1;")
 
 
+def test_parse_sql_ddl_gives_clean_concise_error_on_malformed_input():
+    # Mimics pasted junk: a partial statement / stray prose before real SQL.
+    with pytest.raises(ValueError) as exc:
+        parse_sql_ddl("SQL DDL: CREATE TABLE t (id INT,")
+    msg = str(exc.value)
+    assert "\x1b" not in msg  # no ANSI colour/underline escape codes
+    assert "line" in msg.lower()  # points at where it failed
+    assert len(msg) < 300  # concise, not the whole echoed input
+
+
 # --- dbt manifest ------------------------------------------------------------
 
 MANIFEST = {

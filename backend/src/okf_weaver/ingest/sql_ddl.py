@@ -23,8 +23,8 @@ def parse_sql_ddl(ddl: str, *, dialect: str | None = None) -> SchemaIR:
     """
     try:
         statements = sqlglot.parse(ddl, read=dialect)
-    except sqlglot.errors.ParseError as exc:  # pragma: no cover - message passthrough
-        raise ValueError(f"could not parse SQL: {exc}") from exc
+    except sqlglot.errors.ParseError as exc:
+        raise ValueError(_friendly_parse_error(exc)) from exc
 
     tables: list[Table] = []
     for stmt in statements:
@@ -41,8 +41,28 @@ def parse_sql_ddl(ddl: str, *, dialect: str | None = None) -> SchemaIR:
         tables.append(Table(name=table.name, columns=columns))
 
     if not tables:
-        raise ValueError("no CREATE TABLE statements found in input")
+        raise ValueError(
+            "No CREATE TABLE statements found. Paste your schema as one or more "
+            "CREATE TABLE definitions (SQL only, no surrounding text)."
+        )
     return SchemaIR(source_format=SourceFormat.SQL, tables=tables)
+
+
+def _friendly_parse_error(exc: sqlglot.errors.ParseError) -> str:
+    """Turn a raw sqlglot ParseError (ANSI codes, echoed SQL) into a clean message."""
+    errors = getattr(exc, "errors", None) or []
+    if errors:
+        first = errors[0]
+        description = (first.get("description") or "invalid syntax").strip()
+        line, col = first.get("line"), first.get("col")
+        where = f" at line {line}, column {col}" if line and col else ""
+        detail = f"{description}{where}"
+    else:
+        detail = "invalid SQL syntax"
+    return (
+        f"Could not parse SQL: {detail}. Check for balanced parentheses and a "
+        "semicolon after each CREATE TABLE, and paste SQL only (no labels or prose)."
+    )
 
 
 def _column(col_def: exp.ColumnDef, pk_columns: set[str]) -> Column:

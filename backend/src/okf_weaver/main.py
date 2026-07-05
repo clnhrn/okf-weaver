@@ -58,9 +58,15 @@ def ingest(req: IngestRequest) -> SchemaIR:
     try:
         if req.format is SourceFormat.SQL:
             return parse_sql_ddl(req.content)
-        manifest = json.loads(req.content)
+        try:
+            manifest = json.loads(req.content)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Invalid JSON: {exc.msg} (line {exc.lineno}, column {exc.colno}). "
+                "Paste the full contents of a dbt manifest.json."
+            ) from exc
         return parse_dbt_manifest(manifest)
-    except (ValueError, json.JSONDecodeError) as exc:
+    except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
