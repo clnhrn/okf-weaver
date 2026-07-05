@@ -117,7 +117,7 @@ def test_download_returns_zip(client):
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/zip"
     with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
-        assert "okf.yaml" in z.namelist()
+        assert "index.md" in z.namelist()  # OKF bundle-root manifest
 
 
 def test_download_rejects_invalid_bundle_with_422(client):
