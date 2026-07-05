@@ -47,4 +47,8 @@ describe("parsePartial", () => {
     expect(r.description).toBeUndefined();
     expect(r.columns).toEqual([]);
   });
+
+  it("returns null for concatenated objects (repair-stall double stream)", () => {
+    expect(parsePartial('{"description":"a"}{"description":"b"')).toBeNull();
+  });
 });

@@ -129,7 +129,7 @@ export default function BundleTree({
                 )}
                 <div className="cols">
                   {cols.map((c, ci) => (
-                    <div className="crow" key={c.name ?? ci}>
+                    <div className="crow" key={`col-${ci}`}>
                       <span className="cidx mono">{String(ci + 1).padStart(2, "0")}</span>
                       <div className="cbody">
                         <div className="cmeta">
