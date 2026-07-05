@@ -56,11 +56,19 @@ class SchemaIR(BaseModel):
 
 
 class OKFColumn(BaseModel):
-    """A generated OKF column definition with a self-reported confidence."""
+    """A generated OKF column definition plus the inferred schema facts.
+
+    `definition` and `confidence` come from the model; `data_type`,
+    `is_primary_key`, and `nullable` are carried over from ingestion (never
+    invented by the model) so inference decisions travel with the bundle.
+    """
 
     name: str
     definition: str
     confidence: float = Field(ge=0.0, le=1.0)
+    data_type: str = "unknown"
+    is_primary_key: bool = False
+    nullable: bool = True
 
 
 class OKFTable(BaseModel):

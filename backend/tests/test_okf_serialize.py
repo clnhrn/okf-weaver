@@ -17,7 +17,15 @@ def _bundle():
                 description="One row per order.",
                 confidence=0.9,
                 is_source_of_truth=True,
-                columns=[OKFColumn(name="total", definition="Net order value.", confidence=0.7)],
+                columns=[
+                    OKFColumn(
+                        name="total",
+                        definition="Net order value.",
+                        confidence=0.7,
+                        data_type="numeric",
+                        nullable=False,
+                    )
+                ],
             )
         ]
     )
@@ -37,6 +45,8 @@ def test_table_file_has_valid_yaml_frontmatter():
     assert meta["name"] == "orders"
     assert meta["okf_version"] == "0.1"
     assert "Net order value." in md  # column definition made it into the body
+    assert "`numeric`" in md  # inferred type surfaced in the output
+    assert "not null" in md
 
 
 def test_serialize_bundle_returns_a_readable_zip():

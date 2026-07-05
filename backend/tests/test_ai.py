@@ -26,7 +26,10 @@ class FakeClient:
         return SimpleNamespace(content=content)
 
 
-TABLE = Table(name="orders", columns=[Column(name="id", data_type="int")])
+TABLE = Table(
+    name="orders",
+    columns=[Column(name="id", data_type="int", is_primary_key=True, nullable=False)],
+)
 
 GOOD_PAYLOAD = {
     "name": "orders",
@@ -42,6 +45,15 @@ def test_generate_table_returns_validated_okf_table():
     result = generate_table(TABLE, client=client, model_id="test-model")
     assert result.name == "orders"
     assert result.columns[0].definition == "Order key."
+
+
+def test_generate_table_attaches_schema_facts_from_source():
+    # The model payload has no type/PK/nullable; they come from the source Table.
+    client = FakeClient([_tool_use(GOOD_PAYLOAD)])
+    col = generate_table(TABLE, client=client, model_id="test-model").columns[0]
+    assert col.data_type == "int"
+    assert col.is_primary_key is True
+    assert col.nullable is False
 
 
 def test_generate_table_forces_table_name_from_source():

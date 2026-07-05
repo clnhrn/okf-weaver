@@ -30,6 +30,8 @@ SYSTEM_PROMPT = (
     "- Do NOT invent columns or tables. Describe only what you are given.\n"
     "- If a definition is uncertain, say so plainly and lower its confidence.\n"
     "- Prefer any existing description provided over guessing.\n"
+    "- You only write descriptions, definitions, confidence, and the "
+    "source-of-truth flag; column data types and keys are already known.\n"
     f"- Emit exactly one call to the {_TOOL_NAME} tool; do not reply with prose."
 )
 
@@ -75,13 +77,37 @@ def generate_table(table: Table, *, client: _MessagesClient, model_id: str = DEF
         tool_input = _extract_tool_input(response)
         tool_input["name"] = table.name  # source schema is authoritative for the name
         try:
-            return OKFTable.model_validate(tool_input)
+            okf_table = OKFTable.model_validate(tool_input)
         except ValidationError as exc:
             last_error = exc
             messages.append({"role": "user", "content": _repair_prompt(exc)})
+            continue
+        return _attach_schema_facts(okf_table, table)
 
     assert last_error is not None
     raise last_error
+
+
+def _attach_schema_facts(okf_table: OKFTable, source: Table) -> OKFTable:
+    """Overwrite each column's type/PK/nullability with the ingested facts.
+
+    The model supplies definition + confidence; the structural facts come from
+    ingestion so they are authoritative and never hallucinated.
+    """
+    by_name = {c.name: c for c in source.columns}
+    columns = [
+        col.model_copy(
+            update={
+                "data_type": by_name[col.name].data_type,
+                "is_primary_key": by_name[col.name].is_primary_key,
+                "nullable": by_name[col.name].nullable,
+            }
+        )
+        if col.name in by_name
+        else col
+        for col in okf_table.columns
+    ]
+    return okf_table.model_copy(update={"columns": columns})
 
 
 def generate_bundle(

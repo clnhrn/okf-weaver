@@ -49,6 +49,13 @@ def _table_markdown(okf_version: str, table: OKFTable) -> str:
     )
     lines = [f"# {table.name}", "", table.description, "", "## Columns", ""]
     for column in table.columns:
-        lines.append(f"- **{column.name}** (confidence {column.confidence:.2f}): {column.definition}")
+        facts = [f"`{column.data_type}`"]
+        if column.is_primary_key:
+            facts.append("PK")
+        facts.append("nullable" if column.nullable else "not null")
+        lines.append(
+            f"- **{column.name}** — {' · '.join(facts)} — "
+            f"(confidence {column.confidence:.2f}) {column.definition}"
+        )
     body = "\n".join(lines)
     return f"---\n{frontmatter}---\n\n{body}\n"
