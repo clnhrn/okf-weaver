@@ -151,6 +151,7 @@ def test_generate_bundle_streams_one_table_per_input_and_assembles():
         [_tool_use({**GOOD_PAYLOAD, "name": "customers"})],
     )
     streamed = list(generate_bundle(schema, client=client, model_id="test-model"))
-    assert [t.name for t in streamed] == ["orders", "customers"]
+    # Runs concurrently -> completion order is not guaranteed; both must appear.
+    assert {t.name for t in streamed} == {"orders", "customers"}
     bundle = OKFBundle(tables=streamed)
     assert {t.name for t in bundle.tables} == {"orders", "customers"}

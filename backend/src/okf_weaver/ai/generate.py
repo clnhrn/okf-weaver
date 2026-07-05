@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Protocol
 
 from pydantic import ValidationError
@@ -19,8 +21,12 @@ from pydantic import ValidationError
 from okf_weaver.models import OKFTable, SchemaIR, Table
 
 DEFAULT_MODEL = os.getenv("OKF_MODEL_ID", "claude-sonnet-4-6")
+#: Max concurrent per-table Claude calls. Bounded to respect rate limits and
+#: cost pacing; tables still stream as each completes.
+MAX_CONCURRENCY = max(1, int(os.getenv("OKF_MAX_CONCURRENCY", "5")))
 _TOOL_NAME = "emit_okf_table"
 _MAX_ATTEMPTS = 2  # initial call + one repair pass
+_usage_lock = threading.Lock()  # generate_bundle runs tables concurrently
 
 #: USD per million tokens (input, output) for cost estimation.
 _PRICING = {
@@ -162,11 +168,27 @@ def generate_bundle(
     context: str | None = None,
     usage: dict[str, int] | None = None,
 ) -> Iterator[OKFTable]:
-    """Yield an `OKFTable` per source table (one model call each), in order."""
-    for table in schema.tables:
-        yield generate_table(
-            table, client=client, model_id=model_id, context=context, usage=usage
-        )
+    """Yield an `OKFTable` per source table, running up to `MAX_CONCURRENCY`
+    calls in parallel and streaming each result as it completes (so arrival
+    order may differ from input order; the caller re-orders for the bundle)."""
+    tables = schema.tables
+    if not tables:
+        return
+    workers = min(MAX_CONCURRENCY, len(tables))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [
+            pool.submit(
+                generate_table,
+                table,
+                client=client,
+                model_id=model_id,
+                context=context,
+                usage=usage,
+            )
+            for table in tables
+        ]
+        for future in as_completed(futures):
+            yield future.result()
 
 
 def _accumulate(usage: dict[str, int] | None, response: Any) -> None:
@@ -175,8 +197,9 @@ def _accumulate(usage: dict[str, int] | None, response: Any) -> None:
     u = getattr(response, "usage", None)
     if u is None:
         return
-    for field in _USAGE_FIELDS:
-        usage[field] = usage.get(field, 0) + (getattr(u, field, 0) or 0)
+    with _usage_lock:  # worker threads accumulate into the shared dict
+        for field in _USAGE_FIELDS:
+            usage[field] = usage.get(field, 0) + (getattr(u, field, 0) or 0)
 
 
 def usage_summary(usage: dict[str, int], model_id: str = DEFAULT_MODEL) -> dict[str, Any]:

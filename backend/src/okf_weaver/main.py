@@ -105,6 +105,9 @@ def generate(
         ):
             tables.append(okf_table)
             yield _sse("table", okf_table.model_dump())
+        # Tables stream in completion order; the bundle keeps the schema order.
+        order = [t.name for t in schema.tables]
+        tables.sort(key=lambda t: order.index(t.name))
         bundle = OKFBundle(tables=tables)
         yield _sse(
             "done",

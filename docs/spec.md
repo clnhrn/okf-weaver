@@ -250,11 +250,12 @@ Backend follows TDD (red-green-refactor), one test file per module:
 - **Model** — `claude-sonnet-4-6` with adaptive thinking, configurable via `OKF_MODEL_ID`; Opus 4.6 as the quality upgrade (§4.1).
 - **Streaming** — `/generate` streams partial per-table results over SSE for long schemas (§5, §6).
 - **Batching** — **1 table per model call** by default; column-budget batching (~40–50 columns/call, ≤10 tables/call, wide tables solo) is a documented optimization to enable only if wide-schema latency becomes a problem (§4.2).
+- **Concurrency** — per-table calls run in a thread pool with **bounded parallelism (default 5, `OKF_MAX_CONCURRENCY`)**; tables stream as they complete and the bundle is re-ordered to schema order. Trade-off: parallel calls can't share the prompt cache (a cache entry is only readable after the first response lands), so a large user context loses the caching saving in exchange for latency; for small/no context (caching no-ops anyway) it is pure speedup. Measured: 4 tables ~14s parallel vs ~48s sequential (§4.2).
 - **OKF schema source** — the **`OKFBundle` Pydantic model is our machine-readable OKF v0.1 schema**, derived from the published spec text (Google ships prose, not necessarily a JSON Schema). No external schema artifact is required; a known-good bundle fixture guards it against regressions (§3.3, PRD §6).
 - **Scale cap** — ~100 tables / ~2,000 columns soft limit; warn + suggest splitting above (§9, PRD §6).
 - **Privacy** — stateless, in-memory only, metadata-not-rows to Anthropic (§9, PRD §6).
 
 **Open (to validate / tune):**
 
-- Cost/latency envelope for `claude-sonnet-4-6` — estimated <$0.30/bundle & <60s (§9); confirm on real inputs.
-- Concurrency limit for the default 1-table-per-call path (how many parallel Anthropic calls before rate limits or cost pace becomes the constraint).
+- Cost/latency envelope for `claude-sonnet-4-6` — measured ~1.6¢/table (4-table bundle ≈ $0.065) and ~12s per-table latency, so a run ≈ one call's latency per concurrency batch. Confirm across schema sizes.
+- Whether to tune `OKF_MAX_CONCURRENCY` up (faster, more rate-limit/cost pressure) or add a "prime the cache then fan out" step to keep caching benefits alongside parallelism when a large context is supplied.

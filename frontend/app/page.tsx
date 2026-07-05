@@ -77,7 +77,8 @@ export default function Home() {
       });
       if (!ing.ok) throw new Error((await ing.json()).detail ?? "Could not parse schema");
       const schema = await ing.json();
-      setExpected(schema.tables.map((t: { name: string }) => t.name));
+      const order: string[] = schema.tables.map((t: { name: string }) => t.name);
+      setExpected(order);
 
       const gen = await fetch(`${API}/api/generate`, {
         method: "POST",
@@ -86,7 +87,12 @@ export default function Home() {
       });
       if (!gen.ok || !gen.body) throw new Error("Generation failed — check the backend is running.");
       await readSSE(gen.body, (event, data) => {
-        if (event === "table") setTables((prev) => [...prev, data as OKFTable]);
+        if (event === "table")
+          setTables((prev) =>
+            [...prev, data as OKFTable].sort(
+              (a, b) => order.indexOf(a.name) - order.indexOf(b.name),
+            ),
+          );
         if (event === "done") {
           const d = data as { bundle: Bundle; warnings: string[]; usage: Usage };
           setOkfVersion(d.bundle.okf_version);
