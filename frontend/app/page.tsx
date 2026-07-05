@@ -1,21 +1,15 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
+import BundleTree from "./BundleTree";
+import CodeEditor from "./CodeEditor";
+import { EXAMPLE_MANIFEST, EXAMPLE_SQL } from "./examples";
+import type { Bundle, OKFColumn, OKFTable } from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+const MODEL = "claude-sonnet-4-6";
 
-type OKFColumn = { name: string; definition: string; confidence: number };
-type OKFTable = {
-  name: string;
-  description: string;
-  confidence: number;
-  is_source_of_truth: boolean;
-  columns: OKFColumn[];
-};
-
-function band(c: number): "high" | "medium" | "low" {
-  return c >= 0.8 ? "high" : c >= 0.5 ? "medium" : "low";
-}
+type Phase = "idle" | "generating" | "done" | "error";
 
 export default function Home() {
   const [content, setContent] = useState("");
@@ -23,72 +17,83 @@ export default function Home() {
   const [tables, setTables] = useState<OKFTable[]>([]);
   const [expected, setExpected] = useState<string[]>([]);
   const [okfVersion, setOkfVersion] = useState("0.1");
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  const detected = content.trimStart()[0];
+  const format = detected === "{" || detected === "[" ? "dbt manifest.json" : "SQL DDL";
+  const stats = useMemo(() => {
+    const lines = content ? content.split("\n").length : 0;
+    return { lines, chars: content.length };
+  }, [content]);
+
+  const pending = expected.filter((n) => !tables.some((t) => t.name === n));
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setContent(await file.text());
     setFileName(file.name);
-    e.target.value = ""; // allow re-selecting the same file
+    e.target.value = "";
+  }
+
+  function loadExample(which: "sql" | "json") {
+    setContent(which === "sql" ? EXAMPLE_SQL : EXAMPLE_MANIFEST);
+    setFileName(null);
   }
 
   async function generate() {
-    setBusy(true);
+    setPhase("generating");
     setError(null);
     setTables([]);
     setExpected([]);
-    setDone(false);
+    setWarnings([]);
     try {
-      // 1. Parse to a SchemaIR preview (422 here means bad input).
       const ing = await fetch(`${API}/api/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       });
       if (!ing.ok) throw new Error((await ing.json()).detail ?? "Could not parse schema");
-      const schema = await ing.json(); // format auto-detected server-side
+      const schema = await ing.json();
       setExpected(schema.tables.map((t: { name: string }) => t.name));
 
-      // 2. Stream generation (SSE), rendering each table as it lands.
       const gen = await fetch(`${API}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(schema),
       });
-      if (!gen.ok || !gen.body) throw new Error("Generation failed");
+      if (!gen.ok || !gen.body) throw new Error("Generation failed — check the backend is running.");
       await readSSE(gen.body, (event, data) => {
         if (event === "table") setTables((prev) => [...prev, data as OKFTable]);
         if (event === "done") {
-          setOkfVersion((data as { bundle: { okf_version: string } }).bundle.okf_version);
-          setDone(true);
+          const d = data as { bundle: Bundle; warnings: string[] };
+          setOkfVersion(d.bundle.okf_version);
+          setWarnings(d.warnings ?? []);
         }
       });
+      setPhase("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
+      setPhase("error");
     }
   }
 
   function editTable(ti: number, patch: Partial<OKFTable>) {
     setTables((prev) => prev.map((t, i) => (i === ti ? { ...t, ...patch } : t)));
   }
-
-  function editColumn(ti: number, ci: number, definition: string) {
+  function editColumn(ti: number, ci: number, patch: Partial<OKFColumn>) {
     setTables((prev) =>
       prev.map((t, i) =>
         i === ti
-          ? { ...t, columns: t.columns.map((c, j) => (j === ci ? { ...c, definition } : c)) }
+          ? { ...t, columns: t.columns.map((c, j) => (j === ci ? { ...c, ...patch } : c)) }
           : t,
       ),
     );
   }
 
   async function download() {
-    // Download the *edited* tables; the backend re-validates via OKFBundle.
     setError(null);
     const resp = await fetch(`${API}/api/download`, {
       method: "POST",
@@ -96,8 +101,8 @@ export default function Home() {
       body: JSON.stringify({ okf_version: okfVersion, tables }),
     });
     if (!resp.ok) {
-      const detail = await resp.json().catch(() => ({ detail: "Download failed" }));
-      setError(detail.detail ?? "Download failed");
+      const d = await resp.json().catch(() => ({ detail: "Download failed" }));
+      setError(d.detail ?? "Download failed");
       return;
     }
     const blob = await resp.blob();
@@ -109,101 +114,136 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
-  const canDownload = done && tables.length > 0;
+  const busy = phase === "generating";
+  const canDownload = phase === "done" && tables.length > 0;
 
   return (
-    <main>
-      <h1>OKF Weaver</h1>
-      <p className="sub">Turn a warehouse schema into a validated, portable OKF bundle.</p>
+    <div className="app">
+      <header className="topbar">
+        <span className="mark" aria-hidden />
+        <span className="wordmark">OKF Weaver</span>
+        <span className="tagline mono">schema → OKF v{okfVersion} bundle</span>
+        <span className="grow" />
+        <span className="meta mono">model {MODEL}</span>
+      </header>
 
-      <div className="row">
-        <label className="file-btn">
-          Upload .sql / .json
-          <input type="file" accept=".sql,.json,.txt" onChange={onFile} hidden />
-        </label>
-        {fileName && <span className="notice">Loaded {fileName}</span>}
-      </div>
-      <textarea
-        placeholder="Paste SQL DDL (CREATE TABLE …) or a dbt manifest.json — the format is detected automatically."
-        value={content}
-        onChange={(e) => {
-          setContent(e.target.value);
-          setFileName(null);
-        }}
-      />
-      <p className="notice">
-        Only schema names and types are sent to the model — never row data. Don&apos;t paste secrets.
-      </p>
-      <div className="row">
-        <button onClick={generate} disabled={busy || !content.trim()}>
-          {busy ? "Generating…" : "Generate OKF"}
-        </button>
-        <button className="secondary" onClick={download} disabled={!canDownload}>
-          Approve &amp; download
-        </button>
-      </div>
-
-      {error && <p className="error">{error}</p>}
-
-      {busy && !done && expected.length > 0 && (
-        <p className="status">
-          <span className="spinner" /> Generating… {tables.length} of {expected.length} table
-          {expected.length === 1 ? "" : "s"} done
-        </p>
-      )}
-      {done && (
-        <p className="status ok">
-          ✓ Generated {tables.length} table{tables.length === 1 ? "" : "s"}. Edit anything below,
-          then Approve &amp; download.
-        </p>
-      )}
-
-      {tables.map((t, ti) => (
-        <div className="table" key={t.name}>
-          <h3>
-            {t.name}{" "}
-            <span className={`badge ${band(t.confidence)}`}>{t.confidence.toFixed(2)}</span>
-            <label className="sot">
-              <input
-                type="checkbox"
-                checked={t.is_source_of_truth}
-                onChange={(e) => editTable(ti, { is_source_of_truth: e.target.checked })}
-              />
-              source of truth
+      <main className="workspace">
+        {/* SOURCE (raw) */}
+        <section className="pane source">
+          <div className="pane-head">
+            <span className="label">Source</span>
+            <span className={`fmt mono ${content.trim() ? "" : "faint"}`}>
+              {content.trim() ? format : "—"}
+            </span>
+            <span className="grow" />
+            <label className="ghost-btn">
+              Upload
+              <input type="file" accept=".sql,.json,.txt" onChange={onFile} hidden />
             </label>
-          </h3>
-          <textarea
-            className="edit desc"
-            value={t.description}
-            onChange={(e) => editTable(ti, { description: e.target.value })}
-          />
-          {t.columns.map((c, ci) => (
-            <div className="col" key={c.name}>
-              <div className="col-main">
-                <strong>{c.name}</strong>
-                <textarea
-                  className="edit def"
-                  value={c.definition}
-                  onChange={(e) => editColumn(ti, ci, e.target.value)}
-                />
-              </div>
-              <span className={`badge ${band(c.confidence)}`}>{c.confidence.toFixed(2)}</span>
-            </div>
-          ))}
-        </div>
-      ))}
+          </div>
+          <div className="editor-wrap">
+            <CodeEditor
+              value={content}
+              onChange={(v) => {
+                setContent(v);
+                setFileName(null);
+              }}
+              placeholder="Paste SQL DDL or a dbt manifest.json — format is detected automatically."
+            />
+          </div>
+          <div className="pane-foot">
+            <span className="mono muted">
+              {stats.lines} lines · {stats.chars} chars
+              {fileName ? ` · ${fileName}` : ""}
+            </span>
+            <span className="grow" />
+            <button className="primary" onClick={generate} disabled={busy || !content.trim()}>
+              {busy ? `Generating ${tables.length}/${expected.length || "…"}` : "Generate ▸"}
+            </button>
+          </div>
+        </section>
 
-      {busy &&
-        expected
-          .filter((name) => !tables.some((t) => t.name === name))
-          .map((name) => (
-            <div className="table pending" key={name}>
-              <h3>
-                {name} <span className="badge pending">generating…</span>
-              </h3>
-            </div>
-          ))}
-    </main>
+        {/* TRANSFORM SEAM (signature element) */}
+        <div className="seam" aria-hidden>
+          <span className="seam-line" />
+          <span className="seam-glyph">⟩</span>
+          <span className="seam-line" />
+        </div>
+
+        {/* BUNDLE (structured) */}
+        <section className="pane bundle">
+          <div className="pane-head">
+            <span className="label">Bundle</span>
+            {phase === "generating" && (
+              <span className="status mono">
+                <span className="spinner" /> {tables.length}/{expected.length}
+              </span>
+            )}
+            {phase === "done" && (
+              <span className="status ok mono">
+                ✓ {tables.length} table{tables.length === 1 ? "" : "s"}
+                {warnings.length ? ` · ${warnings.length} warning${warnings.length === 1 ? "" : "s"}` : " · valid"}
+              </span>
+            )}
+            <span className="grow" />
+            <button className="primary" onClick={download} disabled={!canDownload}>
+              Approve &amp; download .zip
+            </button>
+          </div>
+
+          <div className="bundle-body">
+            {phase === "error" ? (
+              <div className="state error">
+                <span className="state-icon">!</span>
+                <p className="state-title">Couldn&apos;t build the bundle</p>
+                <p className="mono state-msg">{error}</p>
+                <button className="ghost-btn" onClick={generate} disabled={!content.trim()}>
+                  Retry
+                </button>
+              </div>
+            ) : phase === "idle" ? (
+              <div className="state empty">
+                <span className="state-icon">{"{ }"}</span>
+                <p className="state-title">No bundle yet</p>
+                <p className="muted">Paste or upload a schema on the left, then Generate. Or load an example:</p>
+                <div className="ex-row">
+                  <button className="ghost-btn" onClick={() => loadExample("sql")}>
+                    schema.sql
+                  </button>
+                  <button className="ghost-btn" onClick={() => loadExample("json")}>
+                    manifest.json
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {warnings.length > 0 && (
+                  <div className="warnbar">
+                    {warnings.map((w) => (
+                      <div className="mono" key={w}>
+                        ⚠ {w}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <BundleTree
+                  tables={tables}
+                  pending={busy ? pending : []}
+                  onTable={editTable}
+                  onColumn={editColumn}
+                />
+              </>
+            )}
+          </div>
+        </section>
+      </main>
+
+      <footer className="statusbar mono">
+        <span>only names + types sent to the model — never row data</span>
+        <span className="grow" />
+        <span className="muted">OKF v{okfVersion}</span>
+      </footer>
+    </div>
   );
 }
 
