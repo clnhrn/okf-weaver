@@ -18,10 +18,12 @@ class FakeClient:
     def __init__(self, *responses):
         self._responses = list(responses)
         self.calls = 0
+        self.last_kwargs = None
         self.messages = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
         self.calls += 1
+        self.last_kwargs = kwargs
         content = self._responses.pop(0)
         return SimpleNamespace(content=content)
 
@@ -54,6 +56,34 @@ def test_generate_table_attaches_schema_facts_from_source():
     assert col.data_type == "int"
     assert col.is_primary_key is True
     assert col.nullable is False
+
+
+def test_generate_table_threads_context_into_system_prompt():
+    client = FakeClient([_tool_use(GOOD_PAYLOAD)])
+    generate_table(TABLE, client=client, model_id="m", context="Revenue excludes tax.")
+    assert "Revenue excludes tax." in client.last_kwargs["system"]
+
+
+def test_generate_table_without_context_uses_base_system_prompt():
+    client = FakeClient([_tool_use(GOOD_PAYLOAD)])
+    generate_table(TABLE, client=client, model_id="m")
+    assert "Business context" not in client.last_kwargs["system"]
+
+
+def test_generate_table_passes_through_column_references():
+    src = Table(
+        name="orders",
+        columns=[Column(name="customer_id", data_type="int", references="customers.id")],
+    )
+    payload = {
+        "name": "orders",
+        "description": "d",
+        "confidence": 0.8,
+        "columns": [{"name": "customer_id", "definition": "FK to customer.", "confidence": 0.8}],
+    }
+    client = FakeClient([_tool_use(payload)])
+    col = generate_table(src, client=client, model_id="m").columns[0]
+    assert col.references == "customers.id"
 
 
 def test_generate_table_forces_table_name_from_source():

@@ -52,6 +52,8 @@ def _table_markdown(okf_version: str, table: OKFTable) -> str:
         facts = [f"`{column.data_type}`"]
         if column.is_primary_key:
             facts.append("PK")
+        if column.references:
+            facts.append(f"→ {column.references}")
         facts.append("nullable" if column.nullable else "not null")
         lines.append(
             f"- **{column.name}** — {' · '.join(facts)} — "

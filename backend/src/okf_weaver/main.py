@@ -22,6 +22,7 @@ from slowapi.util import get_remote_address
 from okf_weaver.ai import generate_bundle, make_client
 from okf_weaver.ingest import detect_format, parse_dbt_manifest, parse_sql_ddl
 from okf_weaver.models import (
+    GenerateRequest,
     IngestRequest,
     OKFBundle,
     SchemaIR,
@@ -86,13 +87,17 @@ def ingest(request: Request, req: IngestRequest) -> SchemaIR:
 @app.post("/api/generate")
 @limiter.limit("10/minute")
 def generate(
-    request: Request, schema: SchemaIR, client: Any = Depends(get_client)
+    request: Request, body: GenerateRequest, client: Any = Depends(get_client)
 ) -> StreamingResponse:
-    """Stream one OKF table per source table (SSE), then a final assembled bundle."""
+    """Stream one OKF table per source table (SSE), then a final assembled bundle.
+
+    Optional ``body.context`` is threaded into every per-table prompt.
+    """
+    schema = body.schema_
 
     def stream() -> Iterator[str]:
         tables = []
-        for okf_table in generate_bundle(schema, client=client):
+        for okf_table in generate_bundle(schema, client=client, context=body.context):
             tables.append(okf_table)
             yield _sse("table", okf_table.model_dump())
         bundle = OKFBundle(tables=tables)

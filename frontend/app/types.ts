@@ -5,6 +5,7 @@ export type OKFColumn = {
   data_type: string;
   is_primary_key: boolean;
   nullable: boolean;
+  references: string | null;
 };
 
 export type OKFTable = {

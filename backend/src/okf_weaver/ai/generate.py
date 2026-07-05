@@ -40,6 +40,17 @@ class _MessagesClient(Protocol):  # minimal shape we depend on (real or fake)
     messages: Any
 
 
+def _system_prompt(context: str | None) -> str:
+    """Base rules, with the user's domain/glossary context appended when given."""
+    if context and context.strip():
+        return (
+            f"{SYSTEM_PROMPT}\n\n"
+            "## Business context (authoritative — prefer it over guessing)\n"
+            f"{context.strip()}"
+        )
+    return SYSTEM_PROMPT
+
+
 def make_client() -> Any:
     """Construct the real Anthropic client (reads ANTHROPIC_API_KEY from env)."""
     import anthropic
@@ -55,8 +66,17 @@ def _tool_definition() -> dict[str, Any]:
     }
 
 
-def generate_table(table: Table, *, client: _MessagesClient, model_id: str = DEFAULT_MODEL) -> OKFTable:
+def generate_table(
+    table: Table,
+    *,
+    client: _MessagesClient,
+    model_id: str = DEFAULT_MODEL,
+    context: str | None = None,
+) -> OKFTable:
     """Generate one validated `OKFTable` for a source table.
+
+    Args:
+        context: Optional free-text domain/glossary notes that steer meaning.
 
     Raises:
         ValueError: If the model does not call the tool.
@@ -69,7 +89,7 @@ def generate_table(table: Table, *, client: _MessagesClient, model_id: str = DEF
         response = client.messages.create(
             model=model_id,
             max_tokens=4096,
-            system=SYSTEM_PROMPT,
+            system=_system_prompt(context),
             tools=[_tool_definition()],
             tool_choice={"type": "tool", "name": _TOOL_NAME},
             messages=messages,
@@ -101,6 +121,7 @@ def _attach_schema_facts(okf_table: OKFTable, source: Table) -> OKFTable:
                 "data_type": by_name[col.name].data_type,
                 "is_primary_key": by_name[col.name].is_primary_key,
                 "nullable": by_name[col.name].nullable,
+                "references": by_name[col.name].references,
             }
         )
         if col.name in by_name
@@ -111,11 +132,15 @@ def _attach_schema_facts(okf_table: OKFTable, source: Table) -> OKFTable:
 
 
 def generate_bundle(
-    schema: SchemaIR, *, client: _MessagesClient, model_id: str = DEFAULT_MODEL
+    schema: SchemaIR,
+    *,
+    client: _MessagesClient,
+    model_id: str = DEFAULT_MODEL,
+    context: str | None = None,
 ) -> Iterator[OKFTable]:
     """Yield an `OKFTable` per source table (one model call each), in order."""
     for table in schema.tables:
-        yield generate_table(table, client=client, model_id=model_id)
+        yield generate_table(table, client=client, model_id=model_id, context=context)
 
 
 def _extract_tool_input(response: Any) -> dict[str, Any]:
@@ -132,6 +157,7 @@ def _render_prompt(table: Table) -> str:
             "data_type": c.data_type,
             "nullable": c.nullable,
             "is_primary_key": c.is_primary_key,
+            "references": c.references,
             "existing_description": c.description,
         }
         for c in table.columns

@@ -166,6 +166,30 @@ body {
   border-right: 1px solid var(--border);
 }
 
+.ctx {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.ctx-toggle {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  font-size: 11.5px;
+  padding: 0.4rem 0.75rem;
+  width: 100%;
+  text-align: left;
+}
+.ctx-toggle:hover {
+  color: var(--text);
+}
+.ctx-input {
+  margin: 0 0.6rem 0.6rem;
+  width: calc(100% - 1.2rem);
+  min-height: 4.5rem;
+  font-size: 11.5px;
+}
+
 .pane-foot {
   display: flex;
   align-items: center;
@@ -174,6 +198,14 @@ body {
   padding: 0 0.75rem;
   border-top: 1px solid var(--border);
   flex: 0 0 auto;
+}
+
+.fk {
+  font-size: 10.5px;
+  color: var(--accent-2);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 0.03rem 0.3rem;
 }
 
 /* ---- transform seam (signature element) ---- */

@@ -90,7 +90,7 @@ def test_generate_streams_table_and_done_events(client):
             "source_format": "sql",
             "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
         }
-        resp = client.post("/api/generate", json=schema)
+        resp = client.post("/api/generate", json={"schema": schema, "context": "B2C shop."})
         assert resp.status_code == 200
         events = _parse_sse(resp.text)
         assert [e for e, _ in events][:1] == ["table"]

@@ -82,6 +82,11 @@ export default function BundleTree({
                           >
                             {c.nullable ? "null" : "not null"}
                           </button>
+                          {c.references && (
+                            <span className="fk mono" title="Foreign key">
+                              → {c.references}
+                            </span>
+                          )}
                           <span className={`chip conf ${band(c.confidence)}`}>
                             {c.confidence.toFixed(2)}
                           </span>

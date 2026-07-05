@@ -13,6 +13,8 @@ type Phase = "idle" | "generating" | "done" | "error";
 
 export default function Home() {
   const [content, setContent] = useState("");
+  const [context, setContext] = useState("");
+  const [showContext, setShowContext] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [tables, setTables] = useState<OKFTable[]>([]);
   const [expected, setExpected] = useState<string[]>([]);
@@ -62,7 +64,7 @@ export default function Home() {
       const gen = await fetch(`${API}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(schema),
+        body: JSON.stringify({ schema, context: context.trim() || null }),
       });
       if (!gen.ok || !gen.body) throw new Error("Generation failed — check the backend is running.");
       await readSSE(gen.body, (event, data) => {
@@ -150,6 +152,23 @@ export default function Home() {
               }}
               placeholder="Paste SQL DDL or a dbt manifest.json — format is detected automatically."
             />
+          </div>
+          <div className="ctx">
+            <button className="ctx-toggle" onClick={() => setShowContext((s) => !s)}>
+              {showContext ? "▾" : "▸"} Context
+              <span className="muted">
+                {context.trim() ? " · added" : " (optional — improves accuracy)"}
+              </span>
+            </button>
+            {showContext && (
+              <textarea
+                className="mono ctx-input"
+                value={context}
+                spellCheck={false}
+                onChange={(e) => setContext(e.target.value)}
+                placeholder="Domain notes & glossary, e.g. 'B2C marketplace. revenue = net of tax and refunds. status ∈ {pending, shipped, cancelled}. tier ∈ {bronze, silver, gold}.' — steers definitions and lifts confidence on ambiguous columns."
+              />
+            )}
           </div>
           <div className="pane-foot">
             <span className="mono muted">
