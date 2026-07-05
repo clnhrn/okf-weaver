@@ -7,6 +7,7 @@ import FileTree from "./FileTree";
 import MarkdownView from "./MarkdownView";
 import { EXAMPLE_MANIFEST, EXAMPLE_SQL } from "./examples";
 import type { Bundle, OKFColumn, OKFTable } from "./types";
+import { useTheme, type ThemeChoice } from "./useTheme";
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const MODEL = "claude-sonnet-4-6";
@@ -42,6 +43,7 @@ export default function Home() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [split, setSplit] = useState(50); // left pane width, % of the workspace
   const workspaceRef = useRef<HTMLElement>(null);
+  const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeMode } = useTheme();
 
   const detected = content.trimStart()[0];
   const format = detected === "{" || detected === "[" ? "dbt manifest.json" : "SQL DDL";
@@ -217,6 +219,19 @@ export default function Home() {
         <span className="wordmark">OKF Weaver</span>
         <span className="tagline mono">schema → OKF v{okfVersion} bundle</span>
         <span className="grow" />
+        <div className="seg small theme-seg" role="group" aria-label="Theme">
+          {(["light", "system", "dark"] as ThemeChoice[]).map((opt) => (
+            <button
+              key={opt}
+              className={themeChoice === opt ? "on" : ""}
+              aria-pressed={themeChoice === opt}
+              onClick={() => setThemeChoice(opt)}
+              title={`${opt[0].toUpperCase()}${opt.slice(1)} theme`}
+            >
+              {opt === "system" ? "Auto" : opt === "light" ? "Light" : "Dark"}
+            </button>
+          ))}
+        </div>
         <span className="meta mono">model {MODEL}</span>
       </header>
 
@@ -241,6 +256,7 @@ export default function Home() {
           <div className="editor-wrap">
             <CodeEditor
               value={content}
+              mode={themeMode}
               onChange={(v) => {
                 setContent(v);
                 setFileName(null);

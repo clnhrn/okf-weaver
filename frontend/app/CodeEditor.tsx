@@ -4,7 +4,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import { sql } from "@codemirror/lang-sql";
 import { json } from "@codemirror/lang-json";
 import { EditorView } from "@codemirror/view";
-import { editorTheme } from "./theme";
+import { editorTheme, editorThemeLight } from "./theme";
 
 function isJsonish(s: string): boolean {
   const head = s.trimStart()[0];
@@ -15,10 +15,12 @@ export default function CodeEditor({
   value,
   onChange,
   placeholder,
+  mode = "dark",
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  mode?: "light" | "dark";
 }) {
   // Language follows the same JSON-vs-SQL heuristic the backend uses to route.
   const lang = isJsonish(value) ? json() : sql();
@@ -26,7 +28,7 @@ export default function CodeEditor({
     <CodeMirror
       value={value}
       onChange={onChange}
-      theme={editorTheme}
+      theme={mode === "light" ? editorThemeLight : editorTheme}
       extensions={[lang, EditorView.lineWrapping]}
       placeholder={placeholder}
       height="100%"

@@ -16,17 +16,17 @@
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f5f7fa;
-    --panel: #ffffff;
-    --panel-2: #f0f3f7;
-    --border: #dfe4ea;
-    --border-2: #cfd6de;
-    --text: #1c232c;
-    --dim: #5a6472;
-    --faint: #97a1af;
-  }
+/* :root above is the dark default. useTheme resolves the choice (incl. "system")
+   and stamps <html data-theme="light|dark">, so light just overrides here. */
+:root[data-theme="light"] {
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --panel-2: #f0f3f7;
+  --border: #dfe4ea;
+  --border-2: #cfd6de;
+  --text: #1c232c;
+  --dim: #5a6472;
+  --faint: #97a1af;
 }
 
 * {
