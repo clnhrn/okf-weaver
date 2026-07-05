@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import threading
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
 from pydantic import ValidationError
@@ -26,6 +27,7 @@ DEFAULT_MODEL = os.getenv("OKF_MODEL_ID", "claude-sonnet-4-6")
 MAX_CONCURRENCY = max(1, int(os.getenv("OKF_MAX_CONCURRENCY", "5")))
 _TOOL_NAME = "emit_okf_table"
 _MAX_ATTEMPTS = 2  # initial call + one repair pass
+_WORKER_DONE = object()  # one per worker; counts completion on the consumer thread
 _usage_lock = threading.Lock()  # generate_bundle runs tables concurrently
 
 #: USD per million tokens (input, output) for cost estimation.
@@ -194,28 +196,53 @@ def generate_bundle(
     model_id: str = DEFAULT_MODEL,
     context: str | None = None,
     usage: dict[str, int] | None = None,
-) -> Iterator[OKFTable]:
-    """Yield an `OKFTable` per source table, running up to `MAX_CONCURRENCY`
-    calls in parallel and streaming each result as it completes (so arrival
-    order may differ from input order; the caller re-orders for the bundle)."""
+) -> Iterator[tuple[str, str, Any]]:
+    """Yield tagged streaming events for every source table.
+
+    Runs up to `MAX_CONCURRENCY` per-table calls in parallel. Each worker
+    pushes onto a shared queue, which this generator drains on the consuming
+    thread, so token deltas from concurrent tables interleave without blocking:
+
+    - `("token", table_name, delta)` — partial tool-call JSON as it streams
+    - `("table", table_name, okf_table)` — once the table validates
+
+    A table that fails generation re-raises its exception here.
+    """
     tables = schema.tables
     if not tables:
         return
-    workers = min(MAX_CONCURRENCY, len(tables))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [
-            pool.submit(
-                generate_table,
+    events: queue.Queue[Any] = queue.Queue()
+
+    def run(table: Table) -> None:
+        try:
+            okf = generate_table(
                 table,
                 client=client,
                 model_id=model_id,
                 context=context,
                 usage=usage,
+                on_delta=lambda delta, name=table.name: events.put(("token", name, delta)),
             )
-            for table in tables
-        ]
-        for future in as_completed(futures):
-            yield future.result()
+            events.put(("table", table.name, okf))
+        except Exception as exc:  # surfaced on the consuming thread below
+            events.put(("error", table.name, exc))
+        finally:
+            events.put(_WORKER_DONE)
+
+    workers = min(MAX_CONCURRENCY, len(tables))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for table in tables:
+            pool.submit(run, table)
+        remaining = len(tables)
+        while remaining:
+            item = events.get()
+            if item is _WORKER_DONE:
+                remaining -= 1
+                continue
+            kind, name, payload = item
+            if kind == "error":
+                raise payload
+            yield kind, name, payload
 
 
 def _accumulate(usage: dict[str, int] | None, response: Any) -> None:

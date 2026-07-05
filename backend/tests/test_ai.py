@@ -181,11 +181,24 @@ def test_generate_bundle_streams_one_table_per_input_and_assembles():
         [_tool_use(GOOD_PAYLOAD)],
         [_tool_use({**GOOD_PAYLOAD, "name": "customers"})],
     )
-    streamed = list(generate_bundle(schema, client=client, model_id="test-model"))
+    events = list(generate_bundle(schema, client=client, model_id="test-model"))
+    tables = [payload for kind, _, payload in events if kind == "table"]
     # Runs concurrently -> completion order is not guaranteed; both must appear.
-    assert {t.name for t in streamed} == {"orders", "customers"}
-    bundle = OKFBundle(tables=streamed)
+    assert {t.name for t in tables} == {"orders", "customers"}
+    bundle = OKFBundle(tables=tables)
     assert {t.name for t in bundle.tables} == {"orders", "customers"}
+
+
+def test_generate_bundle_emits_token_events_before_each_table():
+    schema = SchemaIR(source_format=SourceFormat.SQL, tables=[TABLE])
+    client = FakeClient([_tool_use(GOOD_PAYLOAD)])
+    events = list(generate_bundle(schema, client=client, model_id="m"))
+    kinds = [kind for kind, _, _ in events]
+    assert "token" in kinds
+    assert kinds.index("token") < kinds.index("table")
+    # Token events are tagged with the table name.
+    token_names = {name for kind, name, _ in events if kind == "token"}
+    assert token_names == {"orders"}
 
 
 def test_generate_table_streams_token_deltas_to_callback():
