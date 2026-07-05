@@ -107,7 +107,9 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+  /* Pane widths are driven by --fr-left/--fr-right (set inline) so the seam can
+     drag them; the responsive rule below overrides the tracks directly. */
+  grid-template-columns: minmax(0, var(--fr-left, 1fr)) 34px minmax(0, var(--fr-right, 1fr));
 }
 
 .pane {
@@ -218,6 +220,18 @@ body {
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
   background: var(--panel-2);
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.seam:hover,
+.seam:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
+  outline: none;
+}
+.seam:hover .seam-line,
+.seam:focus-visible .seam-line {
+  background: var(--accent);
 }
 .seam-line {
   flex: 1;
@@ -227,16 +241,30 @@ body {
 .seam-line:last-child {
   background: linear-gradient(transparent, var(--border));
 }
-.seam-glyph {
-  color: var(--accent);
-  font-size: 13px;
-  width: 20px;
-  height: 20px;
+.seam-grip {
+  width: 15px;
+  height: 26px;
   display: grid;
   place-items: center;
   border: 1px solid var(--border-2);
-  border-radius: 50%;
+  border-radius: 6px;
   background: var(--panel);
+  color: var(--dim);
+}
+/* Three dots painted with a repeating dot gradient — no font glyph, so it can't
+   fall back to a mismatched character or render off-center. */
+.seam-grip::before {
+  content: "";
+  width: 3px;
+  height: 15px;
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1.3px);
+  background-size: 3px 5px;
+  background-repeat: repeat-y;
+}
+.seam:hover .seam-grip,
+.seam:focus-visible .seam-grip {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-2));
 }
 
 /* ---- buttons ---- */
