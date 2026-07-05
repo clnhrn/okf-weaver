@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from okf_weaver.main import app, get_client
+from okf_weaver.main import app, get_client, limiter
 
 DDL = "CREATE TABLE orders (id INTEGER PRIMARY KEY, total NUMERIC(12,2));"
 
@@ -31,6 +31,13 @@ class FakeClient:
 
     def _create(self, **kwargs):
         return SimpleNamespace(content=self._responses.pop(0))
+
+
+@pytest.fixture(autouse=True)
+def _reset_limiter():
+    # Isolate per-IP rate-limit counters so tests don't bleed into each other.
+    limiter.reset()
+    yield
 
 
 @pytest.fixture
@@ -100,6 +107,18 @@ def test_download_returns_zip(client):
 def test_download_rejects_invalid_bundle_with_422(client):
     bad = {"tables": [{**OKF_TABLE_PAYLOAD, "confidence": 5}]}
     assert client.post("/api/download", json=bad).status_code == 422
+
+
+def test_ingest_is_rate_limited(client):
+    body = {"format": "sql", "content": DDL}
+    codes = [client.post("/api/ingest", json=body).status_code for _ in range(35)]
+    assert codes.count(200) == 30  # limit is 30/minute
+    assert 429 in codes  # subsequent requests are rejected
+
+
+def test_health_is_not_rate_limited(client):
+    codes = [client.get("/api/health").status_code for _ in range(40)]
+    assert set(codes) == {200}
 
 
 # --- helpers -----------------------------------------------------------------

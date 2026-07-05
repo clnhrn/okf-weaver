@@ -11,10 +11,13 @@ import json
 from collections.abc import Iterator
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Response
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from okf_weaver.ai import generate_bundle, make_client
 from okf_weaver.ingest import parse_dbt_manifest, parse_sql_ddl
@@ -33,6 +36,11 @@ from okf_weaver.okf import (
 )
 
 app = FastAPI(title="OKF Weaver", version="0.1.0")
+
+# Rate limiting (per client IP). Generation is the strict one — it spends tokens.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,7 +61,8 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/ingest")
-def ingest(req: IngestRequest) -> SchemaIR:
+@limiter.limit("30/minute")
+def ingest(request: Request, req: IngestRequest) -> SchemaIR:
     """Parse SQL DDL or a dbt manifest into a `SchemaIR` preview (no tokens spent)."""
     try:
         if req.format is SourceFormat.SQL:
@@ -71,7 +80,10 @@ def ingest(req: IngestRequest) -> SchemaIR:
 
 
 @app.post("/api/generate")
-def generate(schema: SchemaIR, client: Any = Depends(get_client)) -> StreamingResponse:
+@limiter.limit("10/minute")
+def generate(
+    request: Request, schema: SchemaIR, client: Any = Depends(get_client)
+) -> StreamingResponse:
     """Stream one OKF table per source table (SSE), then a final assembled bundle."""
 
     def stream() -> Iterator[str]:
@@ -89,7 +101,8 @@ def generate(schema: SchemaIR, client: Any = Depends(get_client)) -> StreamingRe
 
 
 @app.post("/api/validate")
-def validate(payload: dict[str, Any] = Body(...)) -> ValidationResult:
+@limiter.limit("60/minute")
+def validate(request: Request, payload: dict[str, Any] = Body(...)) -> ValidationResult:
     """Re-validate a (possibly user-edited) bundle through the OKFBundle gate."""
     try:
         build_bundle(payload)
@@ -99,7 +112,8 @@ def validate(payload: dict[str, Any] = Body(...)) -> ValidationResult:
 
 
 @app.post("/api/download")
-def download(bundle: OKFBundle) -> Response:
+@limiter.limit("30/minute")
+def download(request: Request, bundle: OKFBundle) -> Response:
     """Serialize an approved bundle to an OKF Markdown+YAML `.zip`."""
     return Response(
         content=serialize_bundle(bundle),
