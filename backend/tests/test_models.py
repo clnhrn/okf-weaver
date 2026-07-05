@@ -74,6 +74,13 @@ def test_okf_column_accepts_confidence_in_unit_interval(ok):
     assert OKFColumn(name="x", definition="d", confidence=ok).confidence == ok
 
 
+def test_okf_column_schema_facts_default_when_unset():
+    col = OKFColumn(name="x", definition="d", confidence=0.5)
+    assert col.data_type == "unknown"
+    assert col.is_primary_key is False
+    assert col.nullable is True
+
+
 def test_okf_bundle_valid_construction_defaults_to_current_version():
     bundle = OKFBundle(tables=[_okf_table()])
     assert bundle.okf_version == OKF_SPEC_VERSION

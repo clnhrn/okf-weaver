@@ -35,8 +35,9 @@ def parse_sql_ddl(ddl: str, *, dialect: str | None = None) -> SchemaIR:
         if table is None:
             continue
         pk_from_table = _table_level_pk_columns(schema)
+        fks = _foreign_keys(schema)
         columns = [
-            _column(col_def, pk_from_table) for col_def in schema.find_all(exp.ColumnDef)
+            _column(col_def, pk_from_table, fks) for col_def in schema.find_all(exp.ColumnDef)
         ]
         tables.append(Table(name=table.name, columns=columns))
 
@@ -65,7 +66,7 @@ def _friendly_parse_error(exc: sqlglot.errors.ParseError) -> str:
     )
 
 
-def _column(col_def: exp.ColumnDef, pk_columns: set[str]) -> Column:
+def _column(col_def: exp.ColumnDef, pk_columns: set[str], fks: dict[str, str]) -> Column:
     kind = col_def.args.get("kind")
     constraints = col_def.args.get("constraints") or []
     constraint_types = {type(c.kind) for c in constraints}
@@ -77,7 +78,44 @@ def _column(col_def: exp.ColumnDef, pk_columns: set[str]) -> Column:
         data_type=kind.sql() if kind else "unknown",
         nullable=not (not_null or is_pk),
         is_primary_key=is_pk,
+        references=fks.get(col_def.name),
     )
+
+
+def _foreign_keys(schema: exp.Schema) -> dict[str, str]:
+    """Map each foreign-key column to its ``"table.column"`` target.
+
+    Handles both inline ``col ... REFERENCES t(c)`` and table-level
+    ``FOREIGN KEY (col) REFERENCES t(c)``.
+    """
+    refs: dict[str, str] = {}
+    for col_def in schema.find_all(exp.ColumnDef):
+        for constraint in col_def.args.get("constraints") or []:
+            if isinstance(constraint.kind, exp.Reference):
+                target = _reference_target(constraint.kind.this)
+                if target:
+                    refs[col_def.name] = target
+    for fk in schema.find_all(exp.ForeignKey):
+        local = [e.name for e in fk.expressions]
+        ref = fk.args.get("reference")
+        if ref is None:
+            continue
+        ref_schema = ref.this  # exp.Schema: table + referenced columns
+        ref_cols = [e.name for e in ref_schema.expressions]
+        ref_table = ref_schema.this.name
+        for i, col in enumerate(local):
+            ref_col = ref_cols[i] if i < len(ref_cols) else (ref_cols[0] if ref_cols else "id")
+            refs[col] = f"{ref_table}.{ref_col}"
+    return refs
+
+
+def _reference_target(ref_schema: exp.Expression) -> str | None:
+    """Render an inline ``REFERENCES t(c)`` target as ``"t.c"``."""
+    table = ref_schema.find(exp.Table)
+    if table is None:
+        return None
+    cols = [e.name for e in getattr(ref_schema, "expressions", [])]
+    return f"{table.name}.{cols[0]}" if cols else f"{table.name}.id"
 
 
 def _table_level_pk_columns(schema: exp.Schema) -> set[str]:

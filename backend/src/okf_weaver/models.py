@@ -35,6 +35,7 @@ class Column(BaseModel):
     nullable: bool = True
     is_primary_key: bool = False
     description: str | None = None
+    references: str | None = None  # "table.column" if this is a foreign key
 
 
 class Table(BaseModel):
@@ -56,11 +57,20 @@ class SchemaIR(BaseModel):
 
 
 class OKFColumn(BaseModel):
-    """A generated OKF column definition with a self-reported confidence."""
+    """A generated OKF column definition plus the inferred schema facts.
+
+    `definition` and `confidence` come from the model; `data_type`,
+    `is_primary_key`, and `nullable` are carried over from ingestion (never
+    invented by the model) so inference decisions travel with the bundle.
+    """
 
     name: str
     definition: str
     confidence: float = Field(ge=0.0, le=1.0)
+    data_type: str = "unknown"
+    is_primary_key: bool = False
+    nullable: bool = True
+    references: str | None = None
 
 
 class OKFTable(BaseModel):
@@ -111,6 +121,19 @@ class IngestRequest(BaseModel):
 
     content: str
     format: SourceFormat | None = None
+
+
+class GenerateRequest(BaseModel):
+    """Body for ``POST /api/generate``.
+
+    ``context`` is optional free-text domain/business/glossary notes that steer
+    generation toward the user's meaning (e.g. how "revenue" is defined).
+    """
+
+    schema_: SchemaIR = Field(alias="schema")
+    context: str | None = None
+
+    model_config = {"populate_by_name": True}
 
 
 class ValidationResult(BaseModel):

@@ -36,6 +36,21 @@ def test_parse_sql_ddl_captures_primary_key_and_nullability():
     assert by_name["status"].nullable is True
 
 
+def test_parse_sql_ddl_extracts_foreign_keys_inline_and_table_level():
+    ddl = """
+    CREATE TABLE orders (
+        id INTEGER PRIMARY KEY,
+        customer_id INTEGER NOT NULL REFERENCES customers(id),
+        coupon_id INTEGER,
+        FOREIGN KEY (coupon_id) REFERENCES coupons(id)
+    );
+    """
+    cols = {c.name: c for c in parse_sql_ddl(ddl).tables[0].columns}
+    assert cols["customer_id"].references == "customers.id"
+    assert cols["coupon_id"].references == "coupons.id"
+    assert cols["id"].references is None
+
+
 def test_parse_sql_ddl_raises_when_no_create_table():
     with pytest.raises(ValueError):
         parse_sql_ddl("SELECT 1;")

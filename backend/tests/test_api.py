@@ -24,13 +24,38 @@ OKF_TABLE_PAYLOAD = {
 }
 
 
+class _FakeStream:
+    def __init__(self, content):
+        self._content = content
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def __iter__(self):
+        for block in self._content:
+            if getattr(block, "type", None) == "tool_use":
+                text = json.dumps(block.input)
+                mid = max(1, len(text) // 2)
+                for part in (text[:mid], text[mid:]):
+                    yield SimpleNamespace(
+                        type="content_block_delta",
+                        delta=SimpleNamespace(type="input_json_delta", partial_json=part),
+                    )
+
+    def get_final_message(self):
+        return SimpleNamespace(content=self._content, usage=None)
+
+
 class FakeClient:
     def __init__(self, *responses):
         self._responses = list(responses)
-        self.messages = SimpleNamespace(create=self._create)
+        self.messages = SimpleNamespace(stream=self._stream)
 
-    def _create(self, **kwargs):
-        return SimpleNamespace(content=self._responses.pop(0))
+    def _stream(self, **kwargs):
+        return _FakeStream(self._responses.pop(0))
 
 
 @pytest.fixture(autouse=True)
@@ -83,19 +108,45 @@ def test_ingest_rejects_bad_manifest_json_with_422(client):
     assert resp.status_code == 422
 
 
-def test_generate_streams_table_and_done_events(client):
+def test_generate_streams_token_table_and_done_events(client):
     app.dependency_overrides[get_client] = lambda: FakeClient(_tool_use(OKF_TABLE_PAYLOAD))
     try:
         schema = {
             "source_format": "sql",
             "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
         }
-        resp = client.post("/api/generate", json=schema)
+        resp = client.post("/api/generate", json={"schema": schema, "context": "B2C shop."})
         assert resp.status_code == 200
         events = _parse_sse(resp.text)
-        assert [e for e, _ in events][:1] == ["table"]
+        kinds = [e for e, _ in events]
+        # token(s) stream first, then the validated table, then done.
+        assert "token" in kinds
+        assert kinds.index("token") < kinds.index("table") < kinds.index("done")
+        first_token = next(d for e, d in events if e == "token")
+        assert first_token["table"] == "orders"
+        assert isinstance(first_token["delta"], str)
         assert events[-1][0] == "done"
         assert events[-1][1]["bundle"]["tables"][0]["name"] == "orders"
+        assert "estimated_cost_usd" in events[-1][1]["usage"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_emits_error_event_when_a_table_fails(client):
+    # A payload that fails OKFTable validation on both the initial call and the
+    # repair pass makes generate_table (and thus generate_bundle) raise.
+    bad = {**OKF_TABLE_PAYLOAD, "confidence": 9}
+    app.dependency_overrides[get_client] = lambda: FakeClient(_tool_use(bad), _tool_use(bad))
+    try:
+        schema = {
+            "source_format": "sql",
+            "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
+        }
+        resp = client.post("/api/generate", json={"schema": schema})
+        assert resp.status_code == 200
+        kinds = [e for e, _ in _parse_sse(resp.text)]
+        assert "error" in kinds
+        assert "done" not in kinds
     finally:
         app.dependency_overrides.clear()
 
@@ -117,12 +168,26 @@ def test_download_returns_zip(client):
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/zip"
     with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
-        assert "okf.yaml" in z.namelist()
+        assert "index.md" in z.namelist()  # OKF bundle-root manifest
 
 
 def test_download_rejects_invalid_bundle_with_422(client):
     bad = {"tables": [{**OKF_TABLE_PAYLOAD, "confidence": 5}]}
     assert client.post("/api/download", json=bad).status_code == 422
+
+
+def test_preview_returns_the_serialized_okf_files(client):
+    resp = client.post("/api/preview", json={"tables": [OKF_TABLE_PAYLOAD]})
+    assert resp.status_code == 200
+    files = resp.json()["files"]
+    assert "index.md" in files
+    assert "tables/orders.md" in files
+    assert "type: Table" in files["tables/orders.md"]  # same bytes download would zip
+
+
+def test_preview_rejects_invalid_bundle_with_422(client):
+    bad = {"tables": [{**OKF_TABLE_PAYLOAD, "confidence": 5}]}
+    assert client.post("/api/preview", json=bad).status_code == 422
 
 
 def test_ingest_is_rate_limited(client):

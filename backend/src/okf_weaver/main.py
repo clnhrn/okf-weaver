@@ -20,8 +20,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from okf_weaver.ai import generate_bundle, make_client
+from okf_weaver.ai.generate import DEFAULT_MODEL, usage_summary
 from okf_weaver.ingest import detect_format, parse_dbt_manifest, parse_sql_ddl
 from okf_weaver.models import (
+    GenerateRequest,
     IngestRequest,
     OKFBundle,
     SchemaIR,
@@ -30,6 +32,7 @@ from okf_weaver.models import (
 )
 from okf_weaver.okf import (
     build_bundle,
+    bundle_to_files,
     check_against_schema,
     format_validation_error,
     serialize_bundle,
@@ -86,19 +89,40 @@ def ingest(request: Request, req: IngestRequest) -> SchemaIR:
 @app.post("/api/generate")
 @limiter.limit("10/minute")
 def generate(
-    request: Request, schema: SchemaIR, client: Any = Depends(get_client)
+    request: Request, body: GenerateRequest, client: Any = Depends(get_client)
 ) -> StreamingResponse:
-    """Stream one OKF table per source table (SSE), then a final assembled bundle."""
+    """Stream token deltas + one validated OKF table per source table (SSE), then the assembled bundle.
+
+    Optional ``body.context`` is threaded into every per-table prompt.
+    """
+    schema = body.schema_
 
     def stream() -> Iterator[str]:
         tables = []
-        for okf_table in generate_bundle(schema, client=client):
-            tables.append(okf_table)
-            yield _sse("table", okf_table.model_dump())
+        usage: dict[str, int] = {}
+        try:
+            for kind, name, payload in generate_bundle(
+                schema, client=client, context=body.context, usage=usage
+            ):
+                if kind == "token":
+                    yield _sse("token", {"table": name, "delta": payload})
+                else:  # "table" — a validated OKFTable
+                    tables.append(payload)
+                    yield _sse("table", payload.model_dump())
+        except Exception as exc:  # surface mid-stream failure to the client
+            yield _sse("error", {"message": f"Generation failed: {exc}"})
+            return
+        # Tables stream in completion order; the bundle keeps the schema order.
+        order = [t.name for t in schema.tables]
+        tables.sort(key=lambda t: order.index(t.name))
         bundle = OKFBundle(tables=tables)
         yield _sse(
             "done",
-            {"bundle": bundle.model_dump(), "warnings": check_against_schema(bundle, schema)},
+            {
+                "bundle": bundle.model_dump(),
+                "warnings": check_against_schema(bundle, schema),
+                "usage": usage_summary(usage, DEFAULT_MODEL),
+            },
         )
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -113,6 +137,13 @@ def validate(request: Request, payload: dict[str, Any] = Body(...)) -> Validatio
     except ValidationError as exc:
         return ValidationResult(valid=False, errors=format_validation_error(exc))
     return ValidationResult(valid=True)
+
+
+@app.post("/api/preview")
+@limiter.limit("60/minute")
+def preview(request: Request, bundle: OKFBundle) -> dict[str, dict[str, str]]:
+    """Return the exact OKF files (`{path: content}`) that download would zip."""
+    return {"files": bundle_to_files(bundle)}
 
 
 @app.post("/api/download")

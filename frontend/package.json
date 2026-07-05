@@ -5,9 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@uiw/codemirror-themes": "^4.25.10",
+    "@uiw/react-codemirror": "^4.25.10",
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -16,6 +21,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
   }
 }

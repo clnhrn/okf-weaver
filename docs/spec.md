@@ -41,12 +41,12 @@ The MVP is "done" when all of the following hold. Each maps to a test (§8) and 
 
 - Every table in the input yields exactly one OKF entry; every generated column carries a **confidence score** in `[0, 1]`.
 - Generation is constrained by tool use (`emit_okf_table`) and parsed via `OKFTable.model_validate(...)`; a malformed model response is caught and routed to the bounded repair pass, not surfaced raw.
-- For long schemas, results **stream** (SSE) table-by-table.
+- For long schemas, results **stream** (SSE): token-level as each table is generated (live typing), then a validated table event per table.
 
 **Validation & output**
 
 - **100% of downloadable bundles pass OKF v0.1 validation** — a bundle is downloadable only if `OKFBundle` construction (incl. `@model_validator` cross-field rules) succeeds.
-- The exported artifact is a well-formed OKF Markdown+YAML `.zip` that re-parses as valid YAML/Markdown.
+- The exported artifact is a **conformant OKF v0.1 directory** (zipped): `index.md` with `okf_version`, one `tables/<name>.md` concept file per table each carrying the required `type` in parseable YAML frontmatter and a `# Schema` table with FK cross-links.
 
 **Trust / human-in-the-loop**
 
@@ -106,7 +106,7 @@ The frontend is a thin client: all parsing, LLM calls, validation, and serializa
 
 Normalizes either input into a common internal representation before the AI ever sees it.
 
-- **Raw SQL DDL parser** — parses `CREATE TABLE` statements into `Table` / `Column` objects (name, type, nullability, PK/FK hints, inline comments). Uses `sqlglot` for dialect-tolerant parsing.
+- **Raw SQL DDL parser** — parses `CREATE TABLE` statements into `Table` / `Column` objects (name, type, nullability, primary keys, inline comments). Uses `sqlglot` for dialect-tolerant parsing. **Foreign keys** (both inline `REFERENCES t(c)` and table-level `FOREIGN KEY`) are extracted into `Column.references = "table.column"` and travel through to the bundle, so relationships become part of the context automatically (no user effort).
 - **dbt manifest parser** — reads `manifest.json`, extracting `nodes` of type `model`/`source`: table names, column names/types, and any existing `description` fields (a strong prior for the AI to build on).
 - **Output:** a `SchemaIR` **Pydantic model** (intermediate representation) — a list of `Table` models, each holding `Column` models plus any pre-existing descriptions/relationships. This decouples the AI module from input format, and the parsers construct/validate `SchemaIR` directly so malformed input fails at the boundary with a structured error.
 
@@ -121,7 +121,12 @@ Normalizes either input into a common internal representation before the AI ever
 
 ### 3.4 Bundle serializer (`okf/serialize.py`)
 
-- Renders the validated internal bundle to OKF's Markdown + YAML file layout and zips it for download.
+- Renders the validated internal bundle to a **conformant OKF v0.1 directory** (per [GoogleCloudPlatform/knowledge-catalog `okf/SPEC.md`](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)) and zips it:
+  - `index.md` — bundle-root manifest carrying `okf_version: "0.1"` frontmatter and a linked listing of concepts (the one place `okf_version` is declared, per spec §5).
+  - `log.md` — reserved dated update history.
+  - `tables/<name>.md` — one concept per table: YAML frontmatter with the **required `type`** (`"Table"`) plus recommended `title` / `description` / `timestamp`; body is a `# Schema` Markdown table (`Column | Type | Description`) with **foreign keys rendered as bundle-relative cross-links** (`FK to [customers](/tables/customers.md)`).
+- **Conformance:** the spec's only hard requirement (§8) is parseable frontmatter with a non-empty `type` on every non-reserved file — which we satisfy by construction. The spec is intentionally loose ("no schema registry, no central authority, no required tooling").
+- **Declared extensions** (the spec explicitly permits producer-defined keys and requires consumers to preserve unknown ones): our confidence + source-of-truth signals ride as `okf_x_source_of_truth` / `okf_x_table_confidence` frontmatter keys and an extra `Confidence` column in the Schema table. They enrich the bundle without breaking conformance.
 
 ### 3.5 Frontend (`web/`)
 
@@ -142,8 +147,9 @@ The AI module is the core of the product. It converts a `SchemaIR` into curated 
 
 Rather than stuffing the whole warehouse into one prompt (which causes the "context rot" the validation report cites), the module generates **per-table**, then assembles:
 
-1. **Chunking** — **one table per model call by default.** This is the safest unit for a trust-first product (no cross-table contamination), gives the finest streaming granularity, and is cheap because the system prompt + OKF field definitions are a cached prefix (~0.1× cost per call via Anthropic prompt caching), so more small calls cost little more than fewer large ones. Calls run with bounded concurrency for latency. **Column-budget batching is a documented optimization, not the default:** if per-call latency on wide schemas becomes a problem, pack small tables together up to **~40–50 columns per call** (hard cap **10 tables/call**), while any table with **> 40 columns always goes solo**. Batching is budgeted on columns, not table count, because output volume — not context window (Sonnet 4.6 has 1M context / 128K output; the schema always fits) — is the binding constraint on structured-output quality.
-2. **Per-table generation** — for each table, the model receives: the table's DDL/IR, its columns and types, any existing dbt descriptions, and (for context) the _names_ of related tables. It returns structured JSON: a table description, per-column business definitions, a source-of-truth flag, and a **confidence score** per generated field.
+1. **Chunking** — **one table per model call by default.** This is the safest unit for a trust-first product (no cross-table contamination) and gives the finest streaming granularity. The system prompt + OKF tool schema + any user context are sent as a **cache-controlled prefix** (`cache_control: ephemeral`); when that prefix exceeds the model's minimum cacheable size (~2048 tokens on Sonnet 4.6 — in practice once a context blob is supplied), calls 2..N read it at ~0.1× input cost, so more small calls cost little more than fewer large ones. Below that size caching silently no-ops (measured: a bare prefix is ~650 tokens and does not cache; a ~2.2k-token prefix does). Actual token usage + an estimated USD cost are returned in the `/api/generate` `done` event and shown in the UI status bar. Calls run with bounded concurrency for latency.
+   - **Token-level streaming** — each per-table call uses the SDK's streaming API (`messages.stream`), so the model's output is surfaced **as it is generated**, not just when the table completes. Because output is a forced tool call, the streamed tokens are `input_json_delta` chunks — partial JSON accumulating toward the `emit_okf_table` argument. The backend re-emits these as `token` SSE events tagged with the table name (`{ table, delta }`); the UI runs a **tolerant partial-JSON parser** and renders each table's description and column definitions filling in live in that table's card, then swaps to the validated `OKFTable` when its `table` event lands. Concurrency is preserved: with up to `OKF_MAX_CONCURRENCY` tables in flight, each delta is routed to its own card by table name, so the streams never interleave visually. **The validation gate is unchanged** — partial JSON is display-only; only the completed, `OKFTable.model_validate`'d tool call is ever reviewed or exported. On the rare validation-repair round-trip a table streams twice and its live preview stalls (the concatenated partials won't parse) until the validated event replaces it; correctness is unaffected. **Column-budget batching is a documented optimization, not the default:** if per-call latency on wide schemas becomes a problem, pack small tables together up to **~40–50 columns per call** (hard cap **10 tables/call**), while any table with **> 40 columns always goes solo**. Batching is budgeted on columns, not table count, because output volume — not context window (Sonnet 4.6 has 1M context / 128K output; the schema always fits) — is the binding constraint on structured-output quality.
+2. **Per-table generation** — for each table, the model receives: the table's columns and types, primary keys, **foreign-key targets** (`references`), any existing dbt descriptions, and — when supplied — the user's **domain/business context** (see §4.5). It returns structured JSON: a table description, per-column business definitions, a source-of-truth flag, and a **confidence score** per generated field. Structural facts (type, PK, nullability, `references`) are attached deterministically from ingestion after generation — the model never invents them.
 3. **Tool-constrained output** — the model returns JSON matching a fixed schema via **tool use** (a single `emit_okf_table` tool), so parsing is deterministic and we avoid free-text drift. The tool's `input_schema` is generated from the per-table **Pydantic model** (`OKFTable.model_json_schema()`) — one source of truth for the shape — and the model's tool call is parsed back with `OKFTable.model_validate(...)`, so a malformed or hallucinated field is caught immediately and routed into the repair pass. Tool use is fully supported on the 4.6 family; native structured outputs (`output_config.format`) are _not_ on Sonnet 4.6 / Opus 4.6 (they'd require Opus 4.8 / Sonnet 5), so tool use is the constraint mechanism here.
 4. **Assembly** — per-table results are merged into a single internal bundle object.
 5. **Validation + bounded repair** — the assembled bundle goes through the OKF validator (§3.3); on failure, one repair round-trip is attempted.
@@ -159,6 +165,10 @@ Rather than stuffing the whole warehouse into one prompt (which causes the "cont
 - **Malformed model output** — caught by structured-output parsing; retried once, then failed gracefully with the partial result preserved.
 - **Validation failure after repair** — returned to the user as a reviewable draft with the specific validation errors shown, never as a "final" download.
 
+### 4.5 Optional user context
+
+The single biggest accuracy lever is telling the model what the data _means_. `/api/generate` accepts optional free-text **`context`** (domain/business notes and a glossary — e.g. how "revenue" is defined, allowed `status` values). It is appended to the **system prompt** (so it is cache-friendly across the per-table calls in one request) under an "authoritative — prefer over guessing" heading, and directly lifts confidence on the ambiguous columns that otherwise score low. It is **optional by design** — the product's promise is good context from _minimal_ input, so context enriches rather than gates. Raw sample data is deliberately **not** accepted in v1 to preserve the metadata-only privacy stance (see §9).
+
 ---
 
 ## 5. Data Flow (happy path)
@@ -166,7 +176,7 @@ Rather than stuffing the whole warehouse into one prompt (which causes the "cont
 1. User uploads/pastes raw SQL DDL **or** `manifest.json` in the Next.js UI.
 2. Frontend `POST`s the raw input to the backend.
 3. **Ingestion** parses input → `SchemaIR`.
-4. **AI module** generates per-table OKF content with confidence scores. `/generate` **streams** results per table as they complete (SSE), so long schemas show progress in the UI instead of a single long wait; the assembled bundle is finalized at stream end.
+4. **AI module** generates per-table OKF content with confidence scores. `/generate` **streams** over SSE at two granularities: `token` events carry the model's output as it is generated (each table's card fills in live), and a `table` event marks each validated table; the assembled bundle is finalized at stream end. Long schemas show live progress in the UI instead of a single long wait.
 5. **Validator** checks the assembled bundle; one repair pass if needed.
 6. Backend returns the bundle (JSON) + confidence flags + any residual validation warnings.
 7. User **reviews and edits** in the UI; low-confidence fields are highlighted.
@@ -181,12 +191,13 @@ Everything is in-memory per request; nothing is stored after the response.
 | Method | Path            | Body                                                   | Returns                                                                                                                                                    |
 | ------ | --------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST` | `/api/ingest`   | `{ content: string, format?: "sql" \| "dbt_manifest" }` — `format` is **auto-detected** when omitted (JSON-ish → dbt manifest, else SQL DDL) | `SchemaIR` (parsed preview) + parse warnings                                                                                                               |
-| `POST` | `/api/generate` | `SchemaIR`                                             | **SSE stream** — one `table` event per completed table (partial OKF + confidence), then a final `done` event with the assembled bundle + validation report |
+| `POST` | `/api/generate` | `{ schema: SchemaIR, context?: string }` — optional domain/glossary notes threaded into every per-table prompt | **SSE stream** — `token` events (`{ table, delta }`, partial tool-call JSON as it streams) interleaved across tables, a `table` event per completed+validated table (OKF + confidence), then a final `done` event with the assembled bundle + validation report |
 | `POST` | `/api/validate` | OKF bundle (JSON, possibly user-edited)                | validation report (pass/fail + errors)                                                                                                                     |
-| `POST` | `/api/download` | OKF bundle (JSON)                                      | `.zip` of OKF Markdown+YAML files                                                                                                                          |
+| `POST` | `/api/preview`  | OKF bundle (JSON)                                      | `{ files: { path: content } }` — the exact OKF v0.1 files `/download` would zip, for a pre-download file-tree preview                                        |
+| `POST` | `/api/download` | OKF bundle (JSON)                                      | `.zip` of the OKF v0.1 directory                                                                                                                            |
 | `GET`  | `/api/health`   | —                                                      | liveness/readiness for CI + deploy                                                                                                                         |
 
-`/ingest` and `/generate` are split so the UI can show a parsed preview before spending tokens, and so `/validate` can be re-run after user edits without regenerating. `/generate` streams (SSE) so large schemas render table-by-table as generation proceeds rather than blocking on the full run; the Anthropic SDK's own streaming feeds each per-table result to the client as it lands.
+`/ingest` and `/generate` are split so the UI can show a parsed preview before spending tokens, and so `/validate` can be re-run after user edits without regenerating. `/generate` streams (SSE) so large schemas render as generation proceeds rather than blocking on the full run; the Anthropic SDK's `messages.stream` feeds each per-table call's `input_json_delta` chunks through as `token` events (live typing), and the fully validated table follows as a `table` event.
 
 Every request and response body is a **Pydantic model**, so FastAPI validates input at the boundary (returning 422 with field-level detail on bad payloads) and serializes typed responses — the `SchemaIR` and `OKFBundle` models defined for the pipeline _are_ the API contract, reused directly rather than redefined.
 
@@ -225,7 +236,7 @@ Backend follows TDD (red-green-refactor), one test file per module:
 ## 9. Non-Functional Notes
 
 - **Security/privacy** — API key server-side only; **stateless: schema and bundle live in memory for the request only, nothing is persisted or logged**. Only schema *metadata* (table/column names + types) is sent to Anthropic — never row data. A UI notice warns users not to paste secrets. No redaction feature in v1 (see PRD §6).
-- **Rate limiting** — per-client-IP limits via `slowapi` (`get_remote_address`): `/api/generate` **10/min** (strictest — it spends tokens), `/api/ingest` **30/min**, `/api/download` **30/min**, `/api/validate` **60/min**; `/api/health` is unlimited (deploy/CI probes). `429` responses pass back through the CORS middleware so the browser renders a real "rate limited" error rather than an opaque network failure. The limiter uses an **in-memory store**, which is correct for the single-instance Render deployment; if the backend is ever scaled to multiple instances, point `slowapi` at a shared Redis so limits are global rather than per-instance.
+- **Rate limiting** — per-client-IP limits via `slowapi` (`get_remote_address`): `/api/generate` **10/min** (strictest — it spends tokens), `/api/ingest` **30/min**, `/api/download` **30/min**, `/api/validate` and `/api/preview` **60/min**; `/api/health` is unlimited (deploy/CI probes). `429` responses pass back through the CORS middleware so the browser renders a real "rate limited" error rather than an opaque network failure. The limiter uses an **in-memory store**, which is correct for the single-instance Render deployment; if the backend is ever scaled to multiple instances, point `slowapi` at a shared Redis so limits are global rather than per-instance.
 - **Cost/latency** — estimated **<$0.30/bundle, median <60s** for a ~20-table/~200-column schema (guardrail <$0.50); the parsed-preview step lets users abort before spending tokens. Numbers to be confirmed on real inputs (PRD §6).
 - **Scale limit** — context window is not the constraint (1 table per call); the cap is practical: **soft limit ~100 tables / ~2,000 columns**, with a warning + "split the schema" suggestion above that.
 - **Portability** — the whole point: output is vendor-neutral OKF, downloadable and usable with any agent/MCP server.
@@ -238,13 +249,14 @@ Backend follows TDD (red-green-refactor), one test file per module:
 
 - **OKF spec version** — validate against **v0.1**, pinned in one constant; bump on each new Google release (§3.3).
 - **Model** — `claude-sonnet-4-6` with adaptive thinking, configurable via `OKF_MODEL_ID`; Opus 4.6 as the quality upgrade (§4.1).
-- **Streaming** — `/generate` streams partial per-table results over SSE for long schemas (§5, §6).
+- **Streaming** — `/generate` streams over SSE at token granularity (`input_json_delta` chunks re-emitted as `token` events, rendered as live typing per table) and then a validated `table` event per table; a tolerant partial-JSON parser drives the live preview, and the unchanged validation gate governs what is reviewed/exported (§4.2, §5, §6).
 - **Batching** — **1 table per model call** by default; column-budget batching (~40–50 columns/call, ≤10 tables/call, wide tables solo) is a documented optimization to enable only if wide-schema latency becomes a problem (§4.2).
+- **Concurrency** — per-table calls run in a thread pool with **bounded parallelism (default 5, `OKF_MAX_CONCURRENCY`)**; tables stream as they complete and the bundle is re-ordered to schema order. Trade-off: parallel calls can't share the prompt cache (a cache entry is only readable after the first response lands), so a large user context loses the caching saving in exchange for latency; for small/no context (caching no-ops anyway) it is pure speedup. Measured: 4 tables ~14s parallel vs ~48s sequential (§4.2).
 - **OKF schema source** — the **`OKFBundle` Pydantic model is our machine-readable OKF v0.1 schema**, derived from the published spec text (Google ships prose, not necessarily a JSON Schema). No external schema artifact is required; a known-good bundle fixture guards it against regressions (§3.3, PRD §6).
 - **Scale cap** — ~100 tables / ~2,000 columns soft limit; warn + suggest splitting above (§9, PRD §6).
 - **Privacy** — stateless, in-memory only, metadata-not-rows to Anthropic (§9, PRD §6).
 
 **Open (to validate / tune):**
 
-- Cost/latency envelope for `claude-sonnet-4-6` — estimated <$0.30/bundle & <60s (§9); confirm on real inputs.
-- Concurrency limit for the default 1-table-per-call path (how many parallel Anthropic calls before rate limits or cost pace becomes the constraint).
+- Cost/latency envelope for `claude-sonnet-4-6` — measured ~1.6¢/table (4-table bundle ≈ $0.065) and ~12s per-table latency, so a run ≈ one call's latency per concurrency batch. Confirm across schema sizes.
+- Whether to tune `OKF_MAX_CONCURRENCY` up (faster, more rate-limit/cost pressure) or add a "prime the cache then fan out" step to keep caching benefits alongside parallelism when a large context is supplied.
