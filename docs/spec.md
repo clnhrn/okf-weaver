@@ -94,7 +94,7 @@ The MVP is "done" when all of the following hold. Each maps to a test (§8) and 
 **Two deployables:**
 
 - **Frontend** — Next.js (TypeScript, React) on **Vercel**.
-- **Backend** — FastAPI (Python, managed with `uv`) on **Render** or **Railway**. Holds the `ANTHROPIC_API_KEY`; the key never touches the browser.
+- **Backend** — FastAPI (Python, managed with `uv`) on **Render** (via the repo-root `render.yaml` Blueprint). Holds the `ANTHROPIC_API_KEY`; the key never touches the browser.
 
 The frontend is a thin client: all parsing, LLM calls, validation, and serialization happen server-side so the API key and prompt logic stay private.
 
@@ -203,8 +203,8 @@ Every request and response body is a **Pydantic model**, so FastAPI validates in
 | OKF (de)serialization | `PyYAML` + templated Markdown                                                                        |
 | Frontend              | Next.js (TypeScript, React)                                                                          |
 | Tests                 | `pytest` (backend, TDD), plus a smoke test for the frontend                                          |
-| CI/CD                 | GitHub Actions — lint/test on PR, deploy on merge                                                    |
-| Deploy                | Frontend → Vercel; Backend → Render/Railway                                                          |
+| CI/CD                 | GitHub Actions — backend `pytest` + frontend `build` on PRs to `main` (no deploy in CI)              |
+| Deploy                | Frontend → Vercel; Backend → Render — each via its own git integration on push to `main`             |
 | Config                | `ANTHROPIC_API_KEY` + `OKF_MODEL_ID` via env vars                                                    |
 
 ---
