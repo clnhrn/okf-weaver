@@ -293,7 +293,7 @@ export default function Home() {
           title="Drag to resize · double-click to reset"
         >
           <span className="seam-line" />
-          <span className="seam-glyph">⟩</span>
+          <span className="seam-grip" aria-hidden />
           <span className="seam-line" />
         </div>
 
