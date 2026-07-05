@@ -125,6 +125,20 @@ def test_download_rejects_invalid_bundle_with_422(client):
     assert client.post("/api/download", json=bad).status_code == 422
 
 
+def test_preview_returns_the_serialized_okf_files(client):
+    resp = client.post("/api/preview", json={"tables": [OKF_TABLE_PAYLOAD]})
+    assert resp.status_code == 200
+    files = resp.json()["files"]
+    assert "index.md" in files
+    assert "tables/orders.md" in files
+    assert "type: Table" in files["tables/orders.md"]  # same bytes download would zip
+
+
+def test_preview_rejects_invalid_bundle_with_422(client):
+    bad = {"tables": [{**OKF_TABLE_PAYLOAD, "confidence": 5}]}
+    assert client.post("/api/preview", json=bad).status_code == 422
+
+
 def test_ingest_is_rate_limited(client):
     body = {"format": "sql", "content": DDL}
     codes = [client.post("/api/ingest", json=body).status_code for _ in range(35)]

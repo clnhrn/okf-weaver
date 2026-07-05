@@ -3,6 +3,7 @@
 import { useMemo, useState, type ChangeEvent } from "react";
 import BundleTree from "./BundleTree";
 import CodeEditor from "./CodeEditor";
+import FileTree from "./FileTree";
 import { EXAMPLE_MANIFEST, EXAMPLE_SQL } from "./examples";
 import type { Bundle, OKFColumn, OKFTable } from "./types";
 
@@ -22,6 +23,9 @@ export default function Home() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"edit" | "files">("edit");
+  const [files, setFiles] = useState<Record<string, string> | null>(null);
+  const [selectedFile, setSelectedFile] = useState("index.md");
 
   const detected = content.trimStart()[0];
   const format = detected === "{" || detected === "[" ? "dbt manifest.json" : "SQL DDL";
@@ -51,6 +55,8 @@ export default function Home() {
     setTables([]);
     setExpected([]);
     setWarnings([]);
+    setView("edit");
+    setFiles(null);
     try {
       const ing = await fetch(`${API}/api/ingest`, {
         method: "POST",
@@ -93,6 +99,24 @@ export default function Home() {
           : t,
       ),
     );
+  }
+
+  async function openFiles() {
+    // Re-serialize the current (edited) bundle to preview the exact files.
+    setError(null);
+    const resp = await fetch(`${API}/api/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ okf_version: okfVersion, tables }),
+    });
+    if (!resp.ok) {
+      setError("Preview failed");
+      return;
+    }
+    const data = (await resp.json()) as { files: Record<string, string> };
+    setFiles(data.files);
+    setSelectedFile(data.files["index.md"] ? "index.md" : Object.keys(data.files)[0]);
+    setView("files");
   }
 
   async function download() {
@@ -204,6 +228,16 @@ export default function Home() {
                 {warnings.length ? ` · ${warnings.length} warning${warnings.length === 1 ? "" : "s"}` : " · valid"}
               </span>
             )}
+            {phase === "done" && (
+              <div className="seg">
+                <button className={view === "edit" ? "on" : ""} onClick={() => setView("edit")}>
+                  Edit
+                </button>
+                <button className={view === "files" ? "on" : ""} onClick={openFiles}>
+                  Files
+                </button>
+              </div>
+            )}
             <span className="grow" />
             <button className="primary" onClick={download} disabled={!canDownload}>
               Approve &amp; download .zip
@@ -233,6 +267,13 @@ export default function Home() {
                     manifest.json
                   </button>
                 </div>
+              </div>
+            ) : view === "files" && files ? (
+              <div className="files-view">
+                <div className="files-tree">
+                  <FileTree files={files} selected={selectedFile} onSelect={setSelectedFile} />
+                </div>
+                <pre className="files-content mono">{files[selectedFile]}</pre>
               </div>
             ) : (
               <>

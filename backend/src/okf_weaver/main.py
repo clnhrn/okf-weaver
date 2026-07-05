@@ -31,6 +31,7 @@ from okf_weaver.models import (
 )
 from okf_weaver.okf import (
     build_bundle,
+    bundle_to_files,
     check_against_schema,
     format_validation_error,
     serialize_bundle,
@@ -118,6 +119,13 @@ def validate(request: Request, payload: dict[str, Any] = Body(...)) -> Validatio
     except ValidationError as exc:
         return ValidationResult(valid=False, errors=format_validation_error(exc))
     return ValidationResult(valid=True)
+
+
+@app.post("/api/preview")
+@limiter.limit("60/minute")
+def preview(request: Request, bundle: OKFBundle) -> dict[str, dict[str, str]]:
+    """Return the exact OKF files (`{path: content}`) that download would zip."""
+    return {"files": bundle_to_files(bundle)}
 
 
 @app.post("/api/download")

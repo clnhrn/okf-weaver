@@ -309,6 +309,81 @@ button {
   }
 }
 
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.seg button {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+}
+.seg button.on {
+  background: var(--accent);
+  color: #0a0f1a;
+}
+
+.files-view {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.files-tree {
+  width: 190px;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  background: var(--panel);
+  padding: 0.35rem 0;
+}
+.ftree {
+  font-size: 12px;
+}
+.fdir {
+  color: var(--dim);
+  padding: 0.15rem 0.4rem;
+  user-select: none;
+}
+.ffile {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 0.15rem 0.4rem;
+}
+.ffile:hover {
+  color: var(--accent);
+}
+.ffile.sel {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.files-content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  background: var(--bg);
+}
+
 .warnbar {
   border: 1px solid var(--med);
   border-radius: 6px;
