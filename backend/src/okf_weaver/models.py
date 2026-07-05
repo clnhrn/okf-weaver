@@ -101,3 +101,20 @@ class OKFBundle(BaseModel):
             dupes = sorted({n for n in names if names.count(n) > 1})
             raise ValueError(f"duplicate table names in bundle: {dupes}")
         return self
+
+
+# --- API bodies --------------------------------------------------------------
+
+
+class IngestRequest(BaseModel):
+    """Body for ``POST /api/ingest``."""
+
+    format: SourceFormat
+    content: str
+
+
+class ValidationResult(BaseModel):
+    """Body for ``POST /api/validate``."""
+
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
