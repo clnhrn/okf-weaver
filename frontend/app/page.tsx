@@ -93,6 +93,10 @@ export default function Home() {
           const { table, delta } = data as { table: string; delta: string };
           setPartials((prev) => ({ ...prev, [table]: (prev[table] ?? "") + delta }));
         }
+        if (event === "error") {
+          const d = data as { message?: string };
+          throw new Error(d.message ?? "Generation failed.");
+        }
         if (event === "table") {
           const t = data as OKFTable;
           setPartials((prev) => {

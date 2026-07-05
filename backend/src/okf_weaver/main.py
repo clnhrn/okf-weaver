@@ -100,14 +100,18 @@ def generate(
     def stream() -> Iterator[str]:
         tables = []
         usage: dict[str, int] = {}
-        for kind, name, payload in generate_bundle(
-            schema, client=client, context=body.context, usage=usage
-        ):
-            if kind == "token":
-                yield _sse("token", {"table": name, "delta": payload})
-            else:  # "table" — a validated OKFTable
-                tables.append(payload)
-                yield _sse("table", payload.model_dump())
+        try:
+            for kind, name, payload in generate_bundle(
+                schema, client=client, context=body.context, usage=usage
+            ):
+                if kind == "token":
+                    yield _sse("token", {"table": name, "delta": payload})
+                else:  # "table" — a validated OKFTable
+                    tables.append(payload)
+                    yield _sse("table", payload.model_dump())
+        except Exception as exc:  # surface mid-stream failure to the client
+            yield _sse("error", {"message": f"Generation failed: {exc}"})
+            return
         # Tables stream in completion order; the bundle keeps the schema order.
         order = [t.name for t in schema.tables]
         tables.sort(key=lambda t: order.index(t.name))

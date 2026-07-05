@@ -132,6 +132,25 @@ def test_generate_streams_token_table_and_done_events(client):
         app.dependency_overrides.clear()
 
 
+def test_generate_emits_error_event_when_a_table_fails(client):
+    # A payload that fails OKFTable validation on both the initial call and the
+    # repair pass makes generate_table (and thus generate_bundle) raise.
+    bad = {**OKF_TABLE_PAYLOAD, "confidence": 9}
+    app.dependency_overrides[get_client] = lambda: FakeClient(_tool_use(bad), _tool_use(bad))
+    try:
+        schema = {
+            "source_format": "sql",
+            "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
+        }
+        resp = client.post("/api/generate", json={"schema": schema})
+        assert resp.status_code == 200
+        kinds = [e for e, _ in _parse_sse(resp.text)]
+        assert "error" in kinds
+        assert "done" not in kinds
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_validate_reports_valid_bundle(client):
     resp = client.post("/api/validate", json={"tables": [OKF_TABLE_PAYLOAD]})
     assert resp.json() == {"valid": True, "errors": []}
