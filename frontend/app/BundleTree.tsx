@@ -1,16 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { parsePartial } from "./partialJson";
 import { band, type OKFColumn, type OKFTable } from "./types";
 
 export default function BundleTree({
   tables,
   pending,
+  partials,
   onTable,
   onColumn,
 }: {
   tables: OKFTable[];
   pending: string[]; // names still being generated (skeleton rows)
+  partials: Record<string, string>; // raw streamed JSON per pending table
   onTable: (ti: number, patch: Partial<OKFTable>) => void;
   onColumn: (ti: number, ci: number, patch: Partial<OKFColumn>) => void;
 }) {
@@ -108,20 +111,46 @@ export default function BundleTree({
         );
       })}
 
-      {pending.map((name) => (
-        <section className="node skeleton" key={name}>
-          <header className="node-head">
-            <span className="chev">▸</span>
-            <span className="mono tname">{name}</span>
-            <span className="chip pending">generating…</span>
-          </header>
-          <div className="skeleton-rows">
-            <span />
-            <span />
-            <span />
-          </div>
-        </section>
-      ))}
+      {pending.map((name) => {
+        const preview = parsePartial(partials[name] ?? "");
+        const cols = preview?.columns.filter((c) => c.name || c.definition) ?? [];
+        const hasContent = Boolean(preview?.description) || cols.length > 0;
+        return (
+          <section className="node skeleton" key={name}>
+            <header className="node-head">
+              <span className="chev">▸</span>
+              <span className="mono tname">{name}</span>
+              <span className="chip pending">generating…</span>
+            </header>
+            {hasContent ? (
+              <div className="node-body">
+                {preview?.description && (
+                  <p className="mono desc streaming">{preview.description}</p>
+                )}
+                <div className="cols">
+                  {cols.map((c, ci) => (
+                    <div className="crow" key={c.name ?? ci}>
+                      <span className="cidx mono">{String(ci + 1).padStart(2, "0")}</span>
+                      <div className="cbody">
+                        <div className="cmeta">
+                          <span className="mono cname">{c.name ?? "…"}</span>
+                        </div>
+                        <p className="mono cdef streaming">{c.definition ?? ""}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="skeleton-rows">
+                <span />
+                <span />
+                <span />
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }

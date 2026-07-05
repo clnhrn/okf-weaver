@@ -28,6 +28,7 @@ export default function Home() {
   const [showContext, setShowContext] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [tables, setTables] = useState<OKFTable[]>([]);
+  const [partials, setPartials] = useState<Record<string, string>>({});
   const [expected, setExpected] = useState<string[]>([]);
   const [okfVersion, setOkfVersion] = useState("0.1");
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -64,6 +65,7 @@ export default function Home() {
     setPhase("generating");
     setError(null);
     setTables([]);
+    setPartials({});
     setExpected([]);
     setWarnings([]);
     setView("edit");
@@ -87,12 +89,21 @@ export default function Home() {
       });
       if (!gen.ok || !gen.body) throw new Error("Generation failed — check the backend is running.");
       await readSSE(gen.body, (event, data) => {
-        if (event === "table")
+        if (event === "token") {
+          const { table, delta } = data as { table: string; delta: string };
+          setPartials((prev) => ({ ...prev, [table]: (prev[table] ?? "") + delta }));
+        }
+        if (event === "table") {
+          const t = data as OKFTable;
+          setPartials((prev) => {
+            const next = { ...prev };
+            delete next[t.name];
+            return next;
+          });
           setTables((prev) =>
-            [...prev, data as OKFTable].sort(
-              (a, b) => order.indexOf(a.name) - order.indexOf(b.name),
-            ),
+            [...prev, t].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name)),
           );
+        }
         if (event === "done") {
           const d = data as { bundle: Bundle; warnings: string[]; usage: Usage };
           setOkfVersion(d.bundle.okf_version);
@@ -308,6 +319,7 @@ export default function Home() {
                 <BundleTree
                   tables={tables}
                   pending={busy ? pending : []}
+                  partials={partials}
                   onTable={editTable}
                   onColumn={editColumn}
                 />
