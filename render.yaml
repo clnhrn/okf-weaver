@@ -1,0 +1,18 @@
+# Render Blueprint for the OKF Weaver backend.
+# Connect this repo as a Blueprint in Render; it deploys backend/ on push to main.
+# Set ANTHROPIC_API_KEY in the Render dashboard (sync: false keeps it out of git).
+services:
+  - type: web
+    name: okf-weaver-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install uv && uv sync --locked
+    startCommand: uv run uvicorn okf_weaver.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OKF_MODEL_ID
+        value: claude-sonnet-4-6

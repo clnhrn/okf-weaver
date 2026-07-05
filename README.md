@@ -58,6 +58,16 @@ npm run dev                # http://localhost:3000
 | `ANTHROPIC_API_KEY` | Claude API key (backend only) | — (required)        |
 | `OKF_MODEL_ID`      | Claude model id               | `claude-sonnet-4-6` |
 
+## Deployment
+
+CI (GitHub Actions) runs the backend tests and frontend build on every PR against `main`. Deployment is handled by each platform's own Git integration on push to `main` — not by CI.
+
+**Backend → Render.** Connect the repo as a **Blueprint**; [`render.yaml`](render.yaml) defines the service (root `backend/`, `uv sync` + `uvicorn`, health check `/api/health`). Set `ANTHROPIC_API_KEY` in the Render dashboard (kept out of git via `sync: false`).
+
+**Frontend → Vercel.** Import the repo, set **Root Directory** to `frontend/` (Next.js auto-detected). Set `NEXT_PUBLIC_API_BASE` to the Render backend URL. Vercel builds previews on PRs and deploys `main` to production.
+
+Secrets live in the platform dashboards (env vars), never in the repo.
+
 ## Documentation
 
 - [`docs/PRD.md`](docs/PRD.md) — product requirements

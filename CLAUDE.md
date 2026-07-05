@@ -55,6 +55,7 @@ Ingestion normalizes both input formats into one `SchemaIR` so the AI module is 
 - **OKF v0.1**, pinned in one constant (`OKF_SPEC_VERSION`) so a future Google release is a single-point update.
 - **1 table per model call by default** (finest streaming, no cross-table contamination, cheap via prompt caching); column-budget batching (~40–50 cols/call, wide tables solo) is a documented optimization, not the default.
 - **Trust guardrails:** never auto-publish without human approval; the model self-reports per-field confidence and low-confidence fields are surfaced first; the system prompt forbids inventing columns/tables and prefers existing dbt descriptions.
+- **Deployment is via platform git integration, not CI** — Vercel (frontend) + Render (backend, `render.yaml` at repo root) auto-deploy on push to `main`. GitHub Actions (`.github/workflows/ci.yml`) is tests-on-PR only; do not add deploy steps to it. Setup steps live in the README.
 
 ## Conventions
 
