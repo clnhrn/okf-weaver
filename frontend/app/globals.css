@@ -131,3 +131,47 @@ button.secondary {
   font-size: 0.8rem;
   color: #9aa2b0;
 }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #9aa2b0;
+}
+
+.status.ok {
+  color: var(--high);
+  font-weight: 600;
+}
+
+.spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.table.pending {
+  opacity: 0.65;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.badge.pending {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}

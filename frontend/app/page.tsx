@@ -22,15 +22,19 @@ export default function Home() {
   const [format, setFormat] = useState<"sql" | "dbt_manifest">("sql");
   const [content, setContent] = useState("");
   const [tables, setTables] = useState<OKFTable[]>([]);
+  const [expected, setExpected] = useState<string[]>([]);
   const [bundle, setBundle] = useState<Bundle | null>(null);
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function generate() {
     setBusy(true);
     setError(null);
     setTables([]);
+    setExpected([]);
     setBundle(null);
+    setDone(false);
     try {
       // 1. Parse to a SchemaIR preview (422 here means bad input).
       const ing = await fetch(`${API}/api/ingest`, {
@@ -40,6 +44,8 @@ export default function Home() {
       });
       if (!ing.ok) throw new Error((await ing.json()).detail ?? "Could not parse schema");
       const schema = await ing.json();
+      // We know up front how many tables to expect — drives the progress UI.
+      setExpected(schema.tables.map((t: { name: string }) => t.name));
 
       // 2. Stream generation (SSE), rendering each table as it lands.
       const gen = await fetch(`${API}/api/generate`, {
@@ -50,7 +56,10 @@ export default function Home() {
       if (!gen.ok || !gen.body) throw new Error("Generation failed");
       await readSSE(gen.body, (event, data) => {
         if (event === "table") setTables((prev) => [...prev, data as OKFTable]);
-        if (event === "done") setBundle((data as { bundle: Bundle }).bundle);
+        if (event === "done") {
+          setBundle((data as { bundle: Bundle }).bundle);
+          setDone(true);
+        }
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -105,6 +114,19 @@ export default function Home() {
 
       {error && <p className="error">{error}</p>}
 
+      {busy && !done && expected.length > 0 && (
+        <p className="status">
+          <span className="spinner" /> Generating… {tables.length} of {expected.length} table
+          {expected.length === 1 ? "" : "s"} done
+        </p>
+      )}
+      {done && (
+        <p className="status ok">
+          ✓ Generated {tables.length} table{tables.length === 1 ? "" : "s"}. Review below, then
+          Approve &amp; download.
+        </p>
+      )}
+
       {tables.map((t) => (
         <div className="table" key={t.name}>
           <h3>
@@ -122,6 +144,17 @@ export default function Home() {
           ))}
         </div>
       ))}
+
+      {busy &&
+        expected
+          .filter((name) => !tables.some((t) => t.name === name))
+          .map((name) => (
+            <div className="table pending" key={name}>
+              <h3>
+                {name} <span className="badge pending">generating…</span>
+              </h3>
+            </div>
+          ))}
     </main>
   );
 }
