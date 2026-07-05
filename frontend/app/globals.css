@@ -91,15 +91,69 @@ button.secondary {
 }
 
 .table h3 {
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sot {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #9aa2b0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
 }
 
 .col {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 1rem;
-  padding: 0.35rem 0;
+  padding: 0.5rem 0;
   border-top: 1px solid var(--border);
+}
+
+.col-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.col-main strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+textarea.edit {
+  min-height: unset;
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.55rem;
+  resize: vertical;
+}
+
+textarea.edit.desc {
+  min-height: 2.4rem;
+  margin-bottom: 0.25rem;
+}
+
+textarea.edit.def {
+  min-height: 3.2rem;
+}
+
+.file-btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .badge {

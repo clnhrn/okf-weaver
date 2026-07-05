@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
@@ -12,7 +12,6 @@ type OKFTable = {
   is_source_of_truth: boolean;
   columns: OKFColumn[];
 };
-type Bundle = { okf_version: string; tables: OKFTable[] };
 
 function band(c: number): "high" | "medium" | "low" {
   return c >= 0.8 ? "high" : c >= 0.5 ? "medium" : "low";
@@ -21,19 +20,28 @@ function band(c: number): "high" | "medium" | "low" {
 export default function Home() {
   const [format, setFormat] = useState<"sql" | "dbt_manifest">("sql");
   const [content, setContent] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
   const [tables, setTables] = useState<OKFTable[]>([]);
   const [expected, setExpected] = useState<string[]>([]);
-  const [bundle, setBundle] = useState<Bundle | null>(null);
+  const [okfVersion, setOkfVersion] = useState("0.1");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setContent(await file.text());
+    setFormat(file.name.toLowerCase().endsWith(".json") ? "dbt_manifest" : "sql");
+    setFileName(file.name);
+    e.target.value = ""; // allow re-selecting the same file
+  }
 
   async function generate() {
     setBusy(true);
     setError(null);
     setTables([]);
     setExpected([]);
-    setBundle(null);
     setDone(false);
     try {
       // 1. Parse to a SchemaIR preview (422 here means bad input).
@@ -44,7 +52,6 @@ export default function Home() {
       });
       if (!ing.ok) throw new Error((await ing.json()).detail ?? "Could not parse schema");
       const schema = await ing.json();
-      // We know up front how many tables to expect — drives the progress UI.
       setExpected(schema.tables.map((t: { name: string }) => t.name));
 
       // 2. Stream generation (SSE), rendering each table as it lands.
@@ -57,7 +64,7 @@ export default function Home() {
       await readSSE(gen.body, (event, data) => {
         if (event === "table") setTables((prev) => [...prev, data as OKFTable]);
         if (event === "done") {
-          setBundle((data as { bundle: Bundle }).bundle);
+          setOkfVersion((data as { bundle: { okf_version: string } }).bundle.okf_version);
           setDone(true);
         }
       });
@@ -68,13 +75,33 @@ export default function Home() {
     }
   }
 
+  function editTable(ti: number, patch: Partial<OKFTable>) {
+    setTables((prev) => prev.map((t, i) => (i === ti ? { ...t, ...patch } : t)));
+  }
+
+  function editColumn(ti: number, ci: number, definition: string) {
+    setTables((prev) =>
+      prev.map((t, i) =>
+        i === ti
+          ? { ...t, columns: t.columns.map((c, j) => (j === ci ? { ...c, definition } : c)) }
+          : t,
+      ),
+    );
+  }
+
   async function download() {
-    if (!bundle) return;
+    // Download the *edited* tables; the backend re-validates via OKFBundle.
+    setError(null);
     const resp = await fetch(`${API}/api/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bundle),
+      body: JSON.stringify({ okf_version: okfVersion, tables }),
     });
+    if (!resp.ok) {
+      const detail = await resp.json().catch(() => ({ detail: "Download failed" }));
+      setError(detail.detail ?? "Download failed");
+      return;
+    }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -83,6 +110,8 @@ export default function Home() {
     a.click();
     URL.revokeObjectURL(url);
   }
+
+  const canDownload = done && tables.length > 0;
 
   return (
     <main>
@@ -94,11 +123,19 @@ export default function Home() {
           <option value="sql">SQL DDL</option>
           <option value="dbt_manifest">dbt manifest.json</option>
         </select>
+        <label className="file-btn">
+          Upload .sql / .json
+          <input type="file" accept=".sql,.json,.txt" onChange={onFile} hidden />
+        </label>
+        {fileName && <span className="notice">Loaded {fileName}</span>}
       </div>
       <textarea
         placeholder={format === "sql" ? "CREATE TABLE orders (...);" : "Paste manifest.json"}
         value={content}
-        onChange={(e) => setContent(e.target.value)}
+        onChange={(e) => {
+          setContent(e.target.value);
+          setFileName(null);
+        }}
       />
       <p className="notice">
         Only schema names and types are sent to the model — never row data. Don&apos;t paste secrets.
@@ -107,7 +144,7 @@ export default function Home() {
         <button onClick={generate} disabled={busy || !content.trim()}>
           {busy ? "Generating…" : "Generate OKF"}
         </button>
-        <button className="secondary" onClick={download} disabled={!bundle}>
+        <button className="secondary" onClick={download} disabled={!canDownload}>
           Approve &amp; download
         </button>
       </div>
@@ -122,23 +159,40 @@ export default function Home() {
       )}
       {done && (
         <p className="status ok">
-          ✓ Generated {tables.length} table{tables.length === 1 ? "" : "s"}. Review below, then
-          Approve &amp; download.
+          ✓ Generated {tables.length} table{tables.length === 1 ? "" : "s"}. Edit anything below,
+          then Approve &amp; download.
         </p>
       )}
 
-      {tables.map((t) => (
+      {tables.map((t, ti) => (
         <div className="table" key={t.name}>
           <h3>
             {t.name}{" "}
             <span className={`badge ${band(t.confidence)}`}>{t.confidence.toFixed(2)}</span>
+            <label className="sot">
+              <input
+                type="checkbox"
+                checked={t.is_source_of_truth}
+                onChange={(e) => editTable(ti, { is_source_of_truth: e.target.checked })}
+              />
+              source of truth
+            </label>
           </h3>
-          <p>{t.description}</p>
-          {t.columns.map((c) => (
+          <textarea
+            className="edit desc"
+            value={t.description}
+            onChange={(e) => editTable(ti, { description: e.target.value })}
+          />
+          {t.columns.map((c, ci) => (
             <div className="col" key={c.name}>
-              <span>
-                <strong>{c.name}</strong> — {c.definition}
-              </span>
+              <div className="col-main">
+                <strong>{c.name}</strong>
+                <textarea
+                  className="edit def"
+                  value={c.definition}
+                  onChange={(e) => editColumn(ti, ci, e.target.value)}
+                />
+              </div>
               <span className={`badge ${band(c.confidence)}`}>{c.confidence.toFixed(2)}</span>
             </div>
           ))}
