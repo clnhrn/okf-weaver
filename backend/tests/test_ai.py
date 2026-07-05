@@ -1,5 +1,6 @@
 """Tests for the AI generation module (Anthropic client mocked)."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -12,22 +13,52 @@ def _tool_use(payload):
     return SimpleNamespace(type="tool_use", input=payload)
 
 
+class _FakeStream:
+    """Context-manager stand-in for anthropic's MessageStreamManager."""
+
+    def __init__(self, content, usage):
+        self._content = content
+        self._usage = usage
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def __iter__(self):
+        # Emit each tool_use block's JSON as two input_json_delta chunks so
+        # tests exercise partial accumulation.
+        for block in self._content:
+            if getattr(block, "type", None) == "tool_use":
+                text = json.dumps(block.input)
+                mid = max(1, len(text) // 2)
+                for part in (text[:mid], text[mid:]):
+                    yield SimpleNamespace(
+                        type="content_block_delta",
+                        delta=SimpleNamespace(type="input_json_delta", partial_json=part),
+                    )
+
+    def get_final_message(self):
+        return SimpleNamespace(content=self._content, usage=self._usage)
+
+
 class FakeClient:
-    """Stand-in for anthropic.Anthropic; returns queued tool-use responses."""
+    """Stand-in for anthropic.Anthropic; returns queued streaming responses."""
 
     def __init__(self, *responses, usage_per_call=None):
         self._responses = list(responses)
         self.calls = 0
         self.last_kwargs = None
         self._usage = usage_per_call
-        self.messages = SimpleNamespace(create=self._create)
+        self.messages = SimpleNamespace(stream=self._stream)
 
-    def _create(self, **kwargs):
+    def _stream(self, **kwargs):
         self.calls += 1
         self.last_kwargs = kwargs
         content = self._responses.pop(0)
         usage = SimpleNamespace(**self._usage) if self._usage else None
-        return SimpleNamespace(content=content, usage=usage)
+        return _FakeStream(content, usage)
 
 
 TABLE = Table(
@@ -155,3 +186,12 @@ def test_generate_bundle_streams_one_table_per_input_and_assembles():
     assert {t.name for t in streamed} == {"orders", "customers"}
     bundle = OKFBundle(tables=streamed)
     assert {t.name for t in bundle.tables} == {"orders", "customers"}
+
+
+def test_generate_table_streams_token_deltas_to_callback():
+    client = FakeClient([_tool_use(GOOD_PAYLOAD)])
+    chunks: list[str] = []
+    generate_table(TABLE, client=client, model_id="m", on_delta=chunks.append)
+    assert chunks, "expected at least one partial-JSON delta"
+    reassembled = json.loads("".join(chunks))
+    assert reassembled["description"] == "One row per order."

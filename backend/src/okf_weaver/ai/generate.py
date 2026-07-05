@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Protocol
 
@@ -84,6 +84,28 @@ def _tool_definition() -> dict[str, Any]:
     }
 
 
+def _stream_call(client: _MessagesClient, on_delta: Callable[[str], None] | None, **kwargs: Any) -> Any:
+    """Run one streaming Claude call, forwarding tool-call JSON deltas.
+
+    Args:
+        on_delta: Called with each `input_json_delta` chunk (partial tool JSON)
+            as it streams; ignored for any other event type (e.g. thinking).
+
+    Returns:
+        The final assembled message (same `.content`/`.usage` shape as a
+        non-streaming `messages.create` response).
+    """
+    with client.messages.stream(**kwargs) as stream:
+        for event in stream:
+            if (
+                on_delta is not None
+                and getattr(event, "type", None) == "content_block_delta"
+                and getattr(event.delta, "type", None) == "input_json_delta"
+            ):
+                on_delta(event.delta.partial_json)
+        return stream.get_final_message()
+
+
 def generate_table(
     table: Table,
     *,
@@ -91,12 +113,15 @@ def generate_table(
     model_id: str = DEFAULT_MODEL,
     context: str | None = None,
     usage: dict[str, int] | None = None,
+    on_delta: Callable[[str], None] | None = None,
 ) -> OKFTable:
     """Generate one validated `OKFTable` for a source table.
 
     Args:
         context: Optional free-text domain/glossary notes that steer meaning.
         usage: Optional mutable accumulator; token counts are summed into it.
+        on_delta: Optional callback invoked with each partial tool-call JSON
+            chunk as the model streams, for live UI display.
 
     Raises:
         ValueError: If the model does not call the tool.
@@ -106,7 +131,9 @@ def generate_table(
     last_error: ValidationError | None = None
 
     for _ in range(_MAX_ATTEMPTS):
-        response = client.messages.create(
+        response = _stream_call(
+            client,
+            on_delta,
             model=model_id,
             max_tokens=4096,
             # Cache the tools + system prefix (identical across the per-table
