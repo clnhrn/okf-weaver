@@ -4,6 +4,7 @@ import { useMemo, useState, type ChangeEvent } from "react";
 import BundleTree from "./BundleTree";
 import CodeEditor from "./CodeEditor";
 import FileTree from "./FileTree";
+import MarkdownView from "./MarkdownView";
 import { EXAMPLE_MANIFEST, EXAMPLE_SQL } from "./examples";
 import type { Bundle, OKFColumn, OKFTable } from "./types";
 
@@ -37,6 +38,7 @@ export default function Home() {
   const [view, setView] = useState<"edit" | "files">("edit");
   const [files, setFiles] = useState<Record<string, string> | null>(null);
   const [selectedFile, setSelectedFile] = useState("index.md");
+  const [fileMode, setFileMode] = useState<"rendered" | "raw">("rendered");
   const [usage, setUsage] = useState<Usage | null>(null);
 
   const detected = content.trimStart()[0];
@@ -307,7 +309,35 @@ export default function Home() {
                 <div className="files-tree">
                   <FileTree files={files} selected={selectedFile} onSelect={setSelectedFile} />
                 </div>
-                <pre className="files-content mono">{files[selectedFile]}</pre>
+                <div className="files-main">
+                  <div className="files-bar">
+                    <span className="mono files-path">{selectedFile}</span>
+                    <span className="grow" />
+                    <div className="seg small">
+                      <button
+                        className={fileMode === "rendered" ? "on" : ""}
+                        onClick={() => setFileMode("rendered")}
+                      >
+                        Rendered
+                      </button>
+                      <button
+                        className={fileMode === "raw" ? "on" : ""}
+                        onClick={() => setFileMode("raw")}
+                      >
+                        Raw
+                      </button>
+                    </div>
+                  </div>
+                  {fileMode === "rendered" && selectedFile.endsWith(".md") ? (
+                    <MarkdownView
+                      content={files[selectedFile]}
+                      files={files}
+                      onNavigate={setSelectedFile}
+                    />
+                  ) : (
+                    <pre className="files-content mono">{files[selectedFile]}</pre>
+                  )}
+                </div>
               </div>
             ) : (
               <>
