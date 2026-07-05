@@ -201,6 +201,15 @@ def test_generate_bundle_emits_token_events_before_each_table():
     assert token_names == {"orders"}
 
 
+def test_generate_bundle_reraises_worker_exception_on_consumer_thread():
+    schema = SchemaIR(source_format=SourceFormat.SQL, tables=[TABLE])
+    # bad payload that fails validation on both the initial call and the repair pass
+    bad = {**GOOD_PAYLOAD, "confidence": 9}
+    client = FakeClient([_tool_use(bad)], [_tool_use(bad)])
+    with pytest.raises(Exception):
+        list(generate_bundle(schema, client=client, model_id="m"))
+
+
 def test_generate_table_streams_token_deltas_to_callback():
     client = FakeClient([_tool_use(GOOD_PAYLOAD)])
     chunks: list[str] = []
