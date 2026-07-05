@@ -22,6 +22,18 @@ DEFAULT_MODEL = os.getenv("OKF_MODEL_ID", "claude-sonnet-4-6")
 _TOOL_NAME = "emit_okf_table"
 _MAX_ATTEMPTS = 2  # initial call + one repair pass
 
+#: USD per million tokens (input, output) for cost estimation.
+_PRICING = {
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-opus-4-6": (5.0, 25.0),
+}
+_USAGE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
 SYSTEM_PROMPT = (
     "You are a data documentation specialist producing Open Knowledge Format "
     "(OKF) v0.1 context for a data warehouse. For the given table, write a clear "
@@ -72,11 +84,13 @@ def generate_table(
     client: _MessagesClient,
     model_id: str = DEFAULT_MODEL,
     context: str | None = None,
+    usage: dict[str, int] | None = None,
 ) -> OKFTable:
     """Generate one validated `OKFTable` for a source table.
 
     Args:
         context: Optional free-text domain/glossary notes that steer meaning.
+        usage: Optional mutable accumulator; token counts are summed into it.
 
     Raises:
         ValueError: If the model does not call the tool.
@@ -89,11 +103,20 @@ def generate_table(
         response = client.messages.create(
             model=model_id,
             max_tokens=4096,
-            system=_system_prompt(context),
+            # Cache the tools + system prefix (identical across the per-table
+            # calls in a request) so calls 2..N read it at ~0.1x input cost.
+            system=[
+                {
+                    "type": "text",
+                    "text": _system_prompt(context),
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
             tools=[_tool_definition()],
             tool_choice={"type": "tool", "name": _TOOL_NAME},
             messages=messages,
         )
+        _accumulate(usage, response)
         tool_input = _extract_tool_input(response)
         tool_input["name"] = table.name  # source schema is authoritative for the name
         try:
@@ -137,10 +160,39 @@ def generate_bundle(
     client: _MessagesClient,
     model_id: str = DEFAULT_MODEL,
     context: str | None = None,
+    usage: dict[str, int] | None = None,
 ) -> Iterator[OKFTable]:
     """Yield an `OKFTable` per source table (one model call each), in order."""
     for table in schema.tables:
-        yield generate_table(table, client=client, model_id=model_id, context=context)
+        yield generate_table(
+            table, client=client, model_id=model_id, context=context, usage=usage
+        )
+
+
+def _accumulate(usage: dict[str, int] | None, response: Any) -> None:
+    if usage is None:
+        return
+    u = getattr(response, "usage", None)
+    if u is None:
+        return
+    for field in _USAGE_FIELDS:
+        usage[field] = usage.get(field, 0) + (getattr(u, field, 0) or 0)
+
+
+def usage_summary(usage: dict[str, int], model_id: str = DEFAULT_MODEL) -> dict[str, Any]:
+    """Tokens + an estimated USD cost for a generate run."""
+    in_rate, out_rate = _PRICING.get(model_id, _PRICING["claude-sonnet-4-6"])
+    cost = (
+        usage.get("input_tokens", 0) * in_rate
+        + usage.get("output_tokens", 0) * out_rate
+        + usage.get("cache_read_input_tokens", 0) * in_rate * 0.1
+        + usage.get("cache_creation_input_tokens", 0) * in_rate * 1.25
+    ) / 1_000_000
+    return {
+        **{field: usage.get(field, 0) for field in _USAGE_FIELDS},
+        "estimated_cost_usd": round(cost, 4),
+        "model": model_id,
+    }
 
 
 def _extract_tool_input(response: Any) -> dict[str, Any]:

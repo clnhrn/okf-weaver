@@ -96,6 +96,7 @@ def test_generate_streams_table_and_done_events(client):
         assert [e for e, _ in events][:1] == ["table"]
         assert events[-1][0] == "done"
         assert events[-1][1]["bundle"]["tables"][0]["name"] == "orders"
+        assert "estimated_cost_usd" in events[-1][1]["usage"]
     finally:
         app.dependency_overrides.clear()
 

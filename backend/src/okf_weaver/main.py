@@ -20,6 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from okf_weaver.ai import generate_bundle, make_client
+from okf_weaver.ai.generate import DEFAULT_MODEL, usage_summary
 from okf_weaver.ingest import detect_format, parse_dbt_manifest, parse_sql_ddl
 from okf_weaver.models import (
     GenerateRequest,
@@ -98,13 +99,20 @@ def generate(
 
     def stream() -> Iterator[str]:
         tables = []
-        for okf_table in generate_bundle(schema, client=client, context=body.context):
+        usage: dict[str, int] = {}
+        for okf_table in generate_bundle(
+            schema, client=client, context=body.context, usage=usage
+        ):
             tables.append(okf_table)
             yield _sse("table", okf_table.model_dump())
         bundle = OKFBundle(tables=tables)
         yield _sse(
             "done",
-            {"bundle": bundle.model_dump(), "warnings": check_against_schema(bundle, schema)},
+            {
+                "bundle": bundle.model_dump(),
+                "warnings": check_against_schema(bundle, schema),
+                "usage": usage_summary(usage, DEFAULT_MODEL),
+            },
         )
 
     return StreamingResponse(stream(), media_type="text/event-stream")

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from okf_weaver.ai.generate import generate_bundle, generate_table
+from okf_weaver.ai.generate import generate_bundle, generate_table, usage_summary
 from okf_weaver.models import Column, OKFBundle, SchemaIR, SourceFormat, Table
 
 
@@ -15,17 +15,19 @@ def _tool_use(payload):
 class FakeClient:
     """Stand-in for anthropic.Anthropic; returns queued tool-use responses."""
 
-    def __init__(self, *responses):
+    def __init__(self, *responses, usage_per_call=None):
         self._responses = list(responses)
         self.calls = 0
         self.last_kwargs = None
+        self._usage = usage_per_call
         self.messages = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
         self.calls += 1
         self.last_kwargs = kwargs
         content = self._responses.pop(0)
-        return SimpleNamespace(content=content)
+        usage = SimpleNamespace(**self._usage) if self._usage else None
+        return SimpleNamespace(content=content, usage=usage)
 
 
 TABLE = Table(
@@ -61,13 +63,13 @@ def test_generate_table_attaches_schema_facts_from_source():
 def test_generate_table_threads_context_into_system_prompt():
     client = FakeClient([_tool_use(GOOD_PAYLOAD)])
     generate_table(TABLE, client=client, model_id="m", context="Revenue excludes tax.")
-    assert "Revenue excludes tax." in client.last_kwargs["system"]
+    assert "Revenue excludes tax." in client.last_kwargs["system"][0]["text"]
 
 
 def test_generate_table_without_context_uses_base_system_prompt():
     client = FakeClient([_tool_use(GOOD_PAYLOAD)])
     generate_table(TABLE, client=client, model_id="m")
-    assert "Business context" not in client.last_kwargs["system"]
+    assert "Business context" not in client.last_kwargs["system"][0]["text"]
 
 
 def test_generate_table_passes_through_column_references():
@@ -84,6 +86,31 @@ def test_generate_table_passes_through_column_references():
     client = FakeClient([_tool_use(payload)])
     col = generate_table(src, client=client, model_id="m").columns[0]
     assert col.references == "customers.id"
+
+
+def test_generate_accumulates_usage_and_estimates_cost():
+    acc: dict = {}
+    client = FakeClient(
+        [_tool_use(GOOD_PAYLOAD)],
+        usage_per_call={
+            "input_tokens": 1000,
+            "output_tokens": 200,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+        },
+    )
+    generate_table(TABLE, client=client, model_id="claude-sonnet-4-6", usage=acc)
+    assert acc["input_tokens"] == 1000 and acc["output_tokens"] == 200
+    summary = usage_summary(acc, "claude-sonnet-4-6")
+    # (1000*$3 + 200*$15) / 1e6 = 0.006
+    assert summary["estimated_cost_usd"] == 0.006
+
+
+def test_generate_table_sends_cache_control_on_system_prompt():
+    client = FakeClient([_tool_use(GOOD_PAYLOAD)])
+    generate_table(TABLE, client=client, model_id="m")
+    system = client.last_kwargs["system"]
+    assert system[0]["cache_control"] == {"type": "ephemeral"}
 
 
 def test_generate_table_forces_table_name_from_source():

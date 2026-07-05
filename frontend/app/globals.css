@@ -642,7 +642,7 @@ textarea:focus {
 .statusbar {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.9rem;
   height: 26px;
   padding: 0 0.9rem;
   border-top: 1px solid var(--border);
@@ -650,6 +650,9 @@ textarea:focus {
   font-size: 10.5px;
   color: var(--faint);
   flex: 0 0 auto;
+}
+.usage {
+  color: var(--dim);
 }
 
 /* ---- responsive: stack panes ---- */
