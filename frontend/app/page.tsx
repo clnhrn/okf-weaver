@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import BundleTree from "./BundleTree";
 import CodeEditor from "./CodeEditor";
 import FileTree from "./FileTree";
@@ -40,6 +40,8 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState("index.md");
   const [fileMode, setFileMode] = useState<"rendered" | "raw">("rendered");
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [split, setSplit] = useState(50); // left pane width, % of the workspace
+  const workspaceRef = useRef<HTMLElement>(null);
 
   const detected = content.trimStart()[0];
   const format = detected === "{" || detected === "[" ? "dbt manifest.json" : "SQL DDL";
@@ -49,6 +51,35 @@ export default function Home() {
   }, [content]);
 
   const pending = expected.filter((n) => !tables.some((t) => t.name === n));
+
+  const SPLIT_MIN = 22;
+  const SPLIT_MAX = 78;
+  function startResize(e: React.PointerEvent) {
+    e.preventDefault();
+    const ws = workspaceRef.current;
+    if (!ws) return;
+    const move = (ev: PointerEvent) => {
+      const rect = ws.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setSplit(Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, pct)));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  }
+  function resizeKey(e: React.KeyboardEvent) {
+    if (e.key === "ArrowLeft") setSplit((s) => Math.max(SPLIT_MIN, s - 2));
+    else if (e.key === "ArrowRight") setSplit((s) => Math.min(SPLIT_MAX, s + 2));
+    else return;
+    e.preventDefault();
+  }
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -189,7 +220,11 @@ export default function Home() {
         <span className="meta mono">model {MODEL}</span>
       </header>
 
-      <main className="workspace">
+      <main
+        className="workspace"
+        ref={workspaceRef}
+        style={{ "--fr-left": `${split}fr`, "--fr-right": `${100 - split}fr` } as CSSProperties}
+      >
         {/* SOURCE (raw) */}
         <section className="pane source">
           <div className="pane-head">
@@ -243,7 +278,20 @@ export default function Home() {
         </section>
 
         {/* TRANSFORM SEAM (signature element) */}
-        <div className="seam" aria-hidden>
+        <div
+          className="seam"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize panes"
+          aria-valuenow={Math.round(split)}
+          aria-valuemin={SPLIT_MIN}
+          aria-valuemax={SPLIT_MAX}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onKeyDown={resizeKey}
+          onDoubleClick={() => setSplit(50)}
+          title="Drag to resize · double-click to reset"
+        >
           <span className="seam-line" />
           <span className="seam-glyph">⟩</span>
           <span className="seam-line" />
