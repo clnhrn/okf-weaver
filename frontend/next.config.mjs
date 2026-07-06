@@ -15,9 +15,16 @@ try {
 // CodeMirror/React Flow inline styles; XSS is already prevented at the source
 // (react-markdown with no rehype-raw, React auto-escaping). The high-value
 // clickjacking/sniffing/base-tag protections below are exact, not relaxed.
+//
+// 'unsafe-eval' is added in development only: Next's React Fast Refresh (HMR)
+// runtime evaluates code at module init, and blocking it aborts the client
+// bundle so interactive components (the CodeMirror editor) never mount.
+// Production builds strip Fast Refresh, so the deployed CSP stays strict.
+const isDev = process.env.NODE_ENV !== "production";
+const scriptSrc = `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`;
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  scriptSrc,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self' data:",
