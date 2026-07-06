@@ -6,7 +6,7 @@
   --border-2: #2c3644;
   --text: #d6dbe3;
   --dim: #8a94a3;
-  --faint: #59626f;
+  --faint: #7a8391; /* WCAG AA (4.8:1 on --bg); the most muted text tier */
   --accent: #6b8afd;
   --accent-2: #45c4b0;
   --high: #3fb27f;
@@ -26,7 +26,7 @@
   --border-2: #cfd6de;
   --text: #1c232c;
   --dim: #5a6472;
-  --faint: #97a1af;
+  --faint: #646b79; /* WCAG AA (4.9:1 on light --bg) */
 }
 
 * {
@@ -59,6 +59,19 @@ body {
 }
 .grow {
   flex: 1;
+}
+/* Visually hidden but still focusable and in the tab order (unlike [hidden]),
+   so label-wrapped file inputs stay keyboard-reachable. */
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ---- app shell ---- */
@@ -271,6 +284,15 @@ body {
 button {
   font-family: var(--sans);
   cursor: pointer;
+}
+/* Consistent keyboard focus ring across every interactive control. The seam,
+   editor, and text fields opt out above with their own focus treatment. */
+button:focus-visible,
+.ghost-btn:focus-within,
+input[type="checkbox"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .primary {
   background: var(--accent);

@@ -74,6 +74,8 @@ export default function BundleTree({
                           <button
                             className={`ov ${c.is_primary_key ? "on" : ""}`}
                             title="Toggle primary key"
+                            aria-pressed={c.is_primary_key}
+                            aria-label="Primary key"
                             onClick={() => onColumn(ti, ci, { is_primary_key: !c.is_primary_key })}
                           >
                             PK
@@ -81,6 +83,8 @@ export default function BundleTree({
                           <button
                             className={`ov ${c.nullable ? "" : "on"}`}
                             title="Toggle nullability"
+                            aria-pressed={!c.nullable}
+                            aria-label="Not null constraint"
                             onClick={() => onColumn(ti, ci, { nullable: !c.nullable })}
                           >
                             {c.nullable ? "null" : "not null"}
