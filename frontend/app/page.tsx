@@ -251,7 +251,7 @@ export default function Home() {
             <span className="grow" />
             <label className="ghost-btn">
               Upload
-              <input type="file" accept=".sql,.json,.txt" onChange={onFile} hidden />
+              <input type="file" accept=".sql,.json,.txt" onChange={onFile} className="vh" />
             </label>
           </div>
           <div className="editor-wrap">
@@ -330,14 +330,26 @@ export default function Home() {
               </span>
             )}
             {phase === "done" && (
-              <div className="seg">
-                <button className={view === "edit" ? "on" : ""} onClick={() => setView("edit")}>
+              <div className="seg" role="group" aria-label="Bundle view">
+                <button
+                  className={view === "edit" ? "on" : ""}
+                  aria-pressed={view === "edit"}
+                  onClick={() => setView("edit")}
+                >
                   Edit
                 </button>
-                <button className={view === "files" ? "on" : ""} onClick={openFiles}>
+                <button
+                  className={view === "files" ? "on" : ""}
+                  aria-pressed={view === "files"}
+                  onClick={openFiles}
+                >
                   Files
                 </button>
-                <button className={view === "erd" ? "on" : ""} onClick={() => setView("erd")}>
+                <button
+                  className={view === "erd" ? "on" : ""}
+                  aria-pressed={view === "erd"}
+                  onClick={() => setView("erd")}
+                >
                   ERD
                 </button>
               </div>
@@ -383,15 +395,17 @@ export default function Home() {
                   <div className="files-bar">
                     <span className="mono files-path">{selectedFile}</span>
                     <span className="grow" />
-                    <div className="seg small">
+                    <div className="seg small" role="group" aria-label="File display mode">
                       <button
                         className={fileMode === "rendered" ? "on" : ""}
+                        aria-pressed={fileMode === "rendered"}
                         onClick={() => setFileMode("rendered")}
                       >
                         Rendered
                       </button>
                       <button
                         className={fileMode === "raw" ? "on" : ""}
+                        aria-pressed={fileMode === "raw"}
                         onClick={() => setFileMode("raw")}
                       >
                         Raw
