@@ -1,8 +1,10 @@
 # OKF Weaver
 
-Turn a data warehouse schema into a curated, validated, portable **Open Knowledge Format (OKF)** bundle — trustworthy, machine-readable context for AI agents and analysts.
+Turn any **relational database** schema — a data warehouse or an operational Postgres/SQL Server/MySQL database — into a curated, validated, portable **Open Knowledge Format (OKF)** bundle: trustworthy, machine-readable context for AI agents, analysts, and the engineers who inherited the database.
 
-AI agents and analysts produce confident-but-wrong answers about company data because the semantic context (what a column _means_, how "revenue" is defined, which table is the source of truth) lives in people's heads and scattered docs rather than in a form machines can consume. OKF Weaver ingests a schema, uses Claude to generate curated OKF context with per-field confidence, validates it, lets a human review and approve, and exports a portable OKF bundle.
+AI agents, analysts, and engineers produce confident-but-wrong answers about company data because the semantic context (what a column _means_, how "revenue" is defined, which table is the source of truth) lives in people's heads and scattered docs rather than in a form machines can consume — whether that's an analytics warehouse or an operational database nobody documented. OKF Weaver ingests a schema (raw SQL DDL, including a `pg_dump`/SSMS export, or a dbt `manifest.json`), uses Claude to generate curated OKF context with per-field confidence, validates it, lets a human review and approve, and exports a portable OKF bundle.
+
+**New here?** See the [**user guide**](docs/guide.md) — export your schema, generate a bundle, and put it to work.
 
 ## Status
 
@@ -70,6 +72,7 @@ Secrets live in the platform dashboards (env vars), never in the repo.
 
 ## Documentation
 
+- [`docs/guide.md`](docs/guide.md) — **user guide**: export a schema from your database, generate a bundle, and use/organize it
 - [`docs/PRD.md`](docs/PRD.md) — product requirements
 - [`docs/spec.md`](docs/spec.md) — architecture, AI module design, and acceptance criteria
 - [`docs/idea-validation-report.md`](docs/idea-validation-report.md) — market validation (problem, users, market, competition, why-now)

@@ -5,7 +5,7 @@ import { THEME_INIT_SCRIPT } from "./useTheme";
 
 export const metadata: Metadata = {
   title: "OKF Weaver",
-  description: "Turn a warehouse schema into a validated, portable OKF bundle.",
+  description: "Turn any relational database schema into a validated, portable OKF bundle.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

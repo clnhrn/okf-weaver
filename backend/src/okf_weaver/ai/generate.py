@@ -44,7 +44,7 @@ _USAGE_FIELDS = (
 
 SYSTEM_PROMPT = (
     "You are a data documentation specialist producing Open Knowledge Format "
-    "(OKF) v0.1 context for a data warehouse. For the given table, write a clear "
+    "(OKF) v0.1 context for a relational database. For the given table, write a clear "
     "business description and a definition for every column.\n"
     "Rules:\n"
     "- Do NOT invent columns or tables. Describe only what you are given.\n"
