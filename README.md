@@ -1,4 +1,8 @@
-# OKF Weaver
+<p align="center">
+  <img src="frontend/public/logo/favicon.svg" alt="OKF Weaver" width="88" height="88">
+</p>
+
+<h1 align="center">OKF Weaver</h1>
 
 Turn any **relational database** schema — a data warehouse or an operational Postgres/SQL Server/MySQL database — into a curated, validated, portable **Open Knowledge Format (OKF)** bundle: trustworthy, machine-readable context for AI agents, analysts, and the engineers who inherited the database.
 
