@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { THEME_INIT_SCRIPT } from "./useTheme";
 
@@ -32,7 +33,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {/* Set the theme before first paint so there is no light/dark flash. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Cookieless, account-free page + funnel analytics. On Vercel the
+            script and beacon are same-origin (/_vercel/insights/*), so the
+            strict CSP needs no change. */}
+        <Analytics />
+      </body>
     </html>
   );
 }

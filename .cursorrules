@@ -1,0 +1,54 @@
+# Cursor rules — OKF Weaver
+
+`AGENTS.md` (and `docs/spec.md`) are the source of truth for how this repo
+works; read them first. This file mirrors the load-bearing rules so Cursor has
+them inline. When code and spec disagree, treat `docs/spec.md` as authoritative
+and update it alongside the code.
+
+## What this is
+
+A stateless web app that ingests a relational database schema (raw SQL DDL from
+any RDBMS, or a dbt `manifest.json`), uses Claude to generate curated Open
+Knowledge Format (OKF) context per table, validates it, lets a human review and
+edit, and exports a portable OKF bundle. No accounts, no persistence, no live
+database connectors in v1.
+
+## Architecture
+
+Two independently deployed services: `frontend/` (Next.js, Vercel) is a thin
+client; `backend/` (FastAPI + Pydantic + Anthropic, Render) does all parsing,
+LLM calls, validation, and serialization so the API key and prompt logic stay
+server-side. Pipeline: `ingest/` -> `SchemaIR` -> `ai/` (Claude tool use,
+streamed over SSE) -> `okf/validate.py` -> `okf/serialize.py`.
+
+## Load-bearing decisions (do not silently change)
+
+- **Pydantic v2 is the single source of truth for every shape** — `SchemaIR`,
+  `OKFBundle`/`OKFTable`/`OKFColumn`, AI tool output, and all API bodies are the
+  same reused models. Structural OKF validity *is* successful `OKFBundle`
+  construction; cross-field rules are `@model_validator` methods. Model output
+  and human edits pass through the identical gate.
+- **Model is `claude-sonnet-4-6` with adaptive thinking** (Opus 4.6 as the
+  quality upgrade). 4.6 surface: no `budget_tokens`, no assistant prefill.
+- **Constrained output via tool use, not native structured outputs** — one
+  `emit_okf_table` tool whose schema is `OKFTable.model_json_schema()`; parse
+  the tool call with `OKFTable.model_validate(...)`.
+- **OKF v0.1**, pinned in one constant (`OKF_SPEC_VERSION`).
+- **1 table per model call by default** (finest streaming, no cross-table
+  contamination, cheap via prompt caching).
+- **Trust guardrails:** never auto-publish without human approval; the model
+  self-reports per-field confidence and low-confidence fields are flagged; the
+  system prompt forbids inventing columns/tables and prefers existing dbt
+  descriptions.
+- **Deployment is via platform git integration, not CI** — Vercel + Render
+  auto-deploy on push to `main`. GitHub Actions is tests-on-PR only; do not add
+  deploy steps to it.
+
+## Conventions
+
+- TDD (red-green-refactor); one test file per module
+  (`okf/validate.py` -> `tests/test_okf_validate.py`); mock the Anthropic call
+  in unit tests, keep any live call behind a mark.
+- Backend uses `uv` — never bare `pip` or `uv pip`. Commit `uv.lock`.
+- Keep modules under ~500-600 lines. Never hardcode secrets; `ANTHROPIC_API_KEY`
+  is server-side only.
