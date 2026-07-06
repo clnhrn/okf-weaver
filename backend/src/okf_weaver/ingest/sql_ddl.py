@@ -31,7 +31,7 @@ def parse_sql_ddl(ddl: str, *, dialect: str | None = None) -> SchemaIR:
     Raises:
         ValueError: If the input can't be parsed or contains no `CREATE TABLE`.
     """
-    cleaned = _strip_batch_separators(ddl)
+    cleaned = _normalize_batches(ddl)
     candidates = [dialect] if dialect is not None else _candidate_dialects(cleaned)
 
     last_error: sqlglot.errors.ParseError | None = None
@@ -53,9 +53,15 @@ def parse_sql_ddl(ddl: str, *, dialect: str | None = None) -> SchemaIR:
     )
 
 
-def _strip_batch_separators(ddl: str) -> str:
-    """Drop `GO` lines — a SSMS/sqlcmd batch separator that isn't valid SQL."""
-    return re.sub(r"(?im)^\s*GO\s*;?\s*$", "", ddl)
+def _normalize_batches(ddl: str) -> str:
+    """Turn `GO` batch separators into statement terminators.
+
+    `GO` is SSMS/sqlcmd syntax, not SQL — and in real scripts it is often the
+    *only* separator (T-SQL `SET`/`CREATE` statements carry no semicolons), so we
+    replace each `GO` line with `;` rather than deleting it, or the statements
+    would run together into one unparseable blob.
+    """
+    return re.sub(r"(?im)^\s*GO\s*;?\s*$", ";", ddl)
 
 
 def _candidate_dialects(sql: str) -> list[str | None]:

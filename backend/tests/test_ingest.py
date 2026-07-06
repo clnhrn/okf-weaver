@@ -100,15 +100,21 @@ def test_parse_sql_ddl_handles_mysqldump_backticks_and_engine_options():
 
 
 def test_parse_sql_ddl_handles_sqlserver_brackets_and_go_separators():
+    # Realistic SSMS output: SET-batch preamble and GO as the *only* separator
+    # (no semicolons on the SET/CREATE/ALTER statements).
     ddl = """
+    SET ANSI_NULLS ON
+    GO
+    SET QUOTED_IDENTIFIER ON
+    GO
     CREATE TABLE [dbo].[orders](
-        [id] [int] NOT NULL,
+        [id] [int] IDENTITY(1,1) NOT NULL,
         [customer_id] [int] NOT NULL,
      CONSTRAINT [PK_orders] PRIMARY KEY CLUSTERED ([id] ASC)
-    );
+    )
     GO
     ALTER TABLE [dbo].[orders] WITH CHECK ADD CONSTRAINT [FK_o]
-        FOREIGN KEY([customer_id]) REFERENCES [dbo].[customers] ([id]);
+        FOREIGN KEY([customer_id]) REFERENCES [dbo].[customers] ([id])
     GO
     """
     cols = {c.name: c for c in parse_sql_ddl(ddl).tables[0].columns}

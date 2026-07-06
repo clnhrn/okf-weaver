@@ -61,6 +61,8 @@ Skip the export — upload your `target/manifest.json` directly. Existing dbt `d
 
 ## 2. Generate and review
 
+> **Just want to try it?** Ready-made sample exports live in [`examples/`](../examples): [`schema-postgres.sql`](../examples/schema-postgres.sql), [`schema-sqlserver.sql`](../examples/schema-sqlserver.sql), and [`schema-mysql.sql`](../examples/schema-mysql.sql) — a small shop schema (`customers`, `products`, `orders`, `order_items`) in each real dump format. Upload any of them to see generation and the ERD without touching your own database.
+
 1. **Paste** the DDL into the **Source** pane, or **Upload** your `.sql` / `manifest.json`. The format is auto-detected.
 2. *(Optional but recommended)* Expand **Context** and add domain notes or a glossary — e.g. *"revenue = net of tax and refunds; `status` ∈ {pending, shipped, cancelled}"*. This is the single biggest accuracy lever and lifts confidence on ambiguous columns.
 3. Click **Generate**. Tables stream in as they're written, each column filling in live.
