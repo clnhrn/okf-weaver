@@ -60,15 +60,19 @@ def _client_ip(request: Request) -> str:
 
     Behind Render's edge proxy ``request.client.host`` is the *proxy* for every
     caller, which would collapse all per-IP limits into one shared bucket. The
-    originating client is the leftmost ``X-Forwarded-For`` entry, so key off that
-    when present and fall back to the socket peer for direct/local calls.
+    trustworthy client IP is the *rightmost* ``X-Forwarded-For`` entry: Render's
+    edge is the sole ingress and appends the true socket peer there. Anything to
+    its left was supplied by the caller and is forgeable, so keying off the
+    leftmost would let an abuser rotate that value to mint a fresh bucket per
+    request and slip the limit. Fall back to the socket peer for direct/local
+    calls with no forwarding header.
 
-    Note: a client can still spoof ``X-Forwarded-For`` to acquire fresh buckets;
-    the paid-endpoint cost ceiling (table caps + budget) is the real backstop.
+    This assumes exactly one trusted hop (Render's edge). If another trusted
+    proxy is ever chained in front, take the Nth-from-right entry instead.
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        client = forwarded.split(",")[0].strip()
+        client = forwarded.split(",")[-1].strip()
         if client:
             return client
     return get_remote_address(request)
