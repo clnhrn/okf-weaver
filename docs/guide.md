@@ -66,7 +66,7 @@ Skip the export — upload your `target/manifest.json` directly. Existing dbt `d
 1. **Paste** the DDL into the **Source** pane, or **Upload** your `.sql` / `manifest.json`. The format is auto-detected.
 2. *(Optional but recommended)* Expand **Context** and add domain notes or a glossary — e.g. *"revenue = net of tax and refunds; `status` ∈ {pending, shipped, cancelled}"*. This is the single biggest accuracy lever and lifts confidence on ambiguous columns.
 3. Click **Generate**. Tables stream in as they're written, each column filling in live.
-4. **Review** — every field carries a confidence score (High ≥ 0.8 / Medium / Low < 0.5); low-confidence items are surfaced first. Edit any description inline, toggle primary-key / source-of-truth, and fix types. **Nothing is final until you approve it** — human review is the point.
+4. **Review** — every field is color-coded by confidence (High ≥ 0.8 / Medium / Low < 0.5) so low-confidence items stand out for review. Edit any description inline, toggle primary-key / source-of-truth, and fix types. **Nothing is final until you approve it** — human review is the point.
 5. **ERD tab** — see the tables and their foreign-key relationships as a diagram, a quick way to sanity-check that the relationships came through and to understand the schema's shape.
 6. **Files tab** — preview the exact OKF markdown the download will contain (toggle Rendered / Raw).
 
@@ -74,7 +74,7 @@ Skip the export — upload your `target/manifest.json` directly. Existing dbt `d
 
 ## 3. Use and organize the bundle
 
-Click **Approve & download** to get `okf-bundle.zip`, a conformant OKF v0.1 directory:
+Click **Approve & download** to get a conformant OKF v0.1 directory as a `.zip` (named after your bundle, e.g. `schema-postgres.zip`):
 
 ```text
 okf-bundle/
