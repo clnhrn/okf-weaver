@@ -8,6 +8,7 @@ boundary (422 with field detail) and the same shapes are reused end to end.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
 from typing import Any
 
@@ -38,6 +39,8 @@ from okf_weaver.okf import (
     format_validation_error,
     serialize_bundle,
 )
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="OKF Weaver", version="0.1.0")
 
@@ -120,12 +123,13 @@ def generate(
         order = [t.name for t in schema.tables]
         tables.sort(key=lambda t: order.index(t.name))
         bundle = OKFBundle(tables=tables)
+        # Token/cost usage is tracked in backend logs only, never sent to the client.
+        logger.info("generate usage: %s", usage_summary(usage, DEFAULT_MODEL))
         yield _sse(
             "done",
             {
                 "bundle": bundle.model_dump(),
                 "warnings": check_against_schema(bundle, schema),
-                "usage": usage_summary(usage, DEFAULT_MODEL),
             },
         )
 

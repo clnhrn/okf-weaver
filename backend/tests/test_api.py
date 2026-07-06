@@ -2,6 +2,7 @@
 
 import io
 import json
+import logging
 import zipfile
 from types import SimpleNamespace
 
@@ -127,7 +128,25 @@ def test_generate_streams_token_table_and_done_events(client):
         assert isinstance(first_token["delta"], str)
         assert events[-1][0] == "done"
         assert events[-1][1]["bundle"]["tables"][0]["name"] == "orders"
-        assert "estimated_cost_usd" in events[-1][1]["usage"]
+        # Token/cost usage must not reach the client (it stays server-side).
+        assert "usage" not in events[-1][1]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_logs_usage_server_side_without_sending_it_to_client(client, caplog):
+    app.dependency_overrides[get_client] = lambda: FakeClient(_tool_use(OKF_TABLE_PAYLOAD))
+    try:
+        schema = {
+            "source_format": "sql",
+            "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
+        }
+        caplog.set_level(logging.INFO)
+        resp = client.post("/api/generate", json={"schema": schema})
+        events = _parse_sse(resp.text)
+        assert "usage" not in events[-1][1]
+        # The cost summary is tracked in the backend logs, not the response.
+        assert any("estimated_cost_usd" in r.getMessage() for r in caplog.records)
     finally:
         app.dependency_overrides.clear()
 
