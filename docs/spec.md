@@ -209,14 +209,14 @@ Every request and response body is a **Pydantic model**, so FastAPI validates in
 | Backend               | FastAPI (Python), managed with `uv`                                                                  |
 | Validation / models   | **Pydantic v2** — single source of truth for `SchemaIR`, `OKFBundle`, AI tool output, and API bodies |
 | AI                    | Anthropic Python SDK (Claude)                                                                        |
-| Rate limiting         | `slowapi` (per-client-IP)                                                                            |
+| Rate limiting         | `slowapi`, keyed on the real client IP from `X-Forwarded-For` (proxy-aware)                          |
 | SQL parsing           | `sqlglot`                                                                                            |
 | OKF (de)serialization | `PyYAML` + templated Markdown                                                                        |
 | Frontend              | Next.js (TypeScript, React)                                                                          |
 | Tests                 | `pytest` (backend, TDD), plus a smoke test for the frontend                                          |
 | CI/CD                 | GitHub Actions — backend `pytest` + frontend `build` on PRs to `main` (no deploy in CI)              |
 | Deploy                | Frontend → Vercel; Backend → Render — each via its own git integration on push to `main`             |
-| Config                | `ANTHROPIC_API_KEY` + `OKF_MODEL_ID` via env vars                                                    |
+| Config                | env vars: `ANTHROPIC_API_KEY`, `OKF_MODEL_ID`, `OKF_ALLOWED_ORIGINS` (CORS), `OKF_DAILY_BUDGET_USD` (spend ceiling) |
 
 ---
 
@@ -235,9 +235,11 @@ Backend follows TDD (red-green-refactor), one test file per module:
 ## 9. Non-Functional Notes
 
 - **Security/privacy** — API key server-side only; **stateless: schema and bundle live in memory for the request only, nothing is persisted or logged**. Only schema *metadata* (table/column names + types) is sent to Anthropic — never row data. A UI notice warns users not to paste secrets. No redaction feature in v1 (see PRD §6).
-- **Rate limiting** — per-client-IP limits via `slowapi` (`get_remote_address`): `/api/generate` **10/min** (strictest — it spends tokens), `/api/ingest` **30/min**, `/api/download` **30/min**, `/api/validate` and `/api/preview` **60/min**; `/api/health` is unlimited (deploy/CI probes). `429` responses pass back through the CORS middleware so the browser renders a real "rate limited" error rather than an opaque network failure. The limiter uses an **in-memory store**, which is correct for the single-instance Render deployment; if the backend is ever scaled to multiple instances, point `slowapi` at a shared Redis so limits are global rather than per-instance.
+- **Abuse/DoS hardening** — the paid endpoints are public, so the Pydantic gate enforces **hard resource caps** as cost-DoS protection (not just soft guidance): ≤`MAX_TABLES` (100) tables per schema/bundle, ≤`MAX_COLUMNS_PER_TABLE` (500) columns per table, ≤`MAX_CONTENT_CHARS` (5M) of ingest text, ≤`MAX_CONTEXT_CHARS` (20k) of business context. Table/column names are validated (`validate_identifier`) to reject path separators, `..`, and control characters, closing a zip-slip/path-traversal vector when a name becomes a bundle file path (`serialize.py` slugifies the path component as a second layer). Mid-stream generation errors return a **generic message + correlation id** to the client; the full exception is logged server-side only. **CORS** is locked to the configured frontend origin(s) (`OKF_ALLOWED_ORIGINS`) with methods limited to `GET`/`POST`.
+- **Spend ceiling** — because a stateless, account-less service can't bind abuse to a single *user* (an abuser rotates IPs), the real backstop bounds *total* spend: a process-wide `SpendGuard` (`budget.py`) accumulates each run's estimated USD cost and, once `OKF_DAILY_BUDGET_USD` is reached in a rolling 24h window, `/api/generate` refuses new work with a generic capacity message (the ceiling is never disclosed to the client). Per-request table/column caps bound how far a single in-flight request can overshoot. The guard is in-memory/per-process (correct for the single Render instance; use Redis if scaled) and complements — does not replace — a hard spend limit set on the Anthropic API key in the Console, which is the ultimate wallet guarantee.
+- **Rate limiting** — per-client-IP limits via `slowapi`, keyed on the leftmost `X-Forwarded-For` entry (behind Render's proxy `request.client.host` is the proxy for everyone, so keying off it would collapse all callers into one bucket): `/api/generate` **10/min** (strictest — it spends tokens), `/api/ingest` **30/min**, `/api/download` **30/min**, `/api/validate` and `/api/preview` **60/min**; `/api/health` is unlimited (deploy/CI probes). `429` responses pass back through the CORS middleware so the browser renders a real "rate limited" error rather than an opaque network failure. The limiter uses an **in-memory store**, which is correct for the single-instance Render deployment; if the backend is ever scaled to multiple instances, point `slowapi` at a shared Redis so limits are global rather than per-instance. Rate limits alone don't stop a determined `X-Forwarded-For` spoofer from acquiring fresh buckets — the hard table/column caps above are the real cost backstop.
 - **Cost/latency** — estimated **<$0.30/bundle, median <60s** for a ~20-table/~200-column schema (guardrail <$0.50); the parsed-preview step lets users abort before spending tokens. Numbers to be confirmed on real inputs (PRD §6).
-- **Scale limit** — context window is not the constraint (1 table per call); the cap is practical: **soft limit ~100 tables / ~2,000 columns**, with a warning + "split the schema" suggestion above that.
+- **Scale limit** — context window is not the constraint (1 table per call); the cap is a **hard limit of 100 tables / 500 columns-per-table**, enforced at the Pydantic gate (both a scale and a cost-DoS control). Schemas above that must be split; the UI surfaces the validation error.
 - **Portability** — the whole point: output is vendor-neutral OKF, downloadable and usable with any agent/MCP server.
 
 ---
@@ -252,7 +254,7 @@ Backend follows TDD (red-green-refactor), one test file per module:
 - **Batching** — **1 table per model call** by default; column-budget batching (~40–50 columns/call, ≤10 tables/call, wide tables solo) is a documented optimization to enable only if wide-schema latency becomes a problem (§4.2).
 - **Concurrency** — per-table calls run in a thread pool with **bounded parallelism (default 5, `OKF_MAX_CONCURRENCY`)**; tables stream as they complete and the bundle is re-ordered to schema order. Trade-off: parallel calls can't share the prompt cache (a cache entry is only readable after the first response lands), so a large user context loses the caching saving in exchange for latency; for small/no context (caching no-ops anyway) it is pure speedup. Measured: 4 tables ~14s parallel vs ~48s sequential (§4.2).
 - **OKF schema source** — the **`OKFBundle` Pydantic model is our machine-readable OKF v0.1 schema**, derived from the published spec text (Google ships prose, not necessarily a JSON Schema). No external schema artifact is required; a known-good bundle fixture guards it against regressions (§3.3, PRD §6).
-- **Scale cap** — ~100 tables / ~2,000 columns soft limit; warn + suggest splitting above (§9, PRD §6).
+- **Scale cap** — hard limit of 100 tables / 500 columns-per-table enforced at the Pydantic gate (scale + cost-DoS control); split larger schemas (§9, PRD §6).
 - **Privacy** — stateless, in-memory only, metadata-not-rows to Anthropic (§9, PRD §6).
 
 **Open (to validate / tune):**

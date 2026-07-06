@@ -8,7 +8,10 @@ services:
     rootDir: backend
     plan: free
     buildCommand: pip install uv && uv sync --locked
-    startCommand: uv run uvicorn okf_weaver.main:app --host 0.0.0.0 --port $PORT
+    # --proxy-headers + --forwarded-allow-ips lets uvicorn resolve the real
+    # client IP from X-Forwarded-For (Render's edge is the only ingress, so "*"
+    # is safe here). Rate limiting also keys off X-Forwarded-For; see main.py.
+    startCommand: uv run uvicorn okf_weaver.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
@@ -16,3 +19,11 @@ services:
         sync: false
       - key: OKF_MODEL_ID
         value: claude-sonnet-4-6
+      # Cost-DoS backstop: refuse generation once ~this much estimated spend
+      # accrues in a 24h window (H1). Pair with a hard spend limit on the API key
+      # in the Anthropic Console as the ultimate guarantee. 0/unset disables it.
+      - key: OKF_DAILY_BUDGET_USD
+        value: "5"
+      # Lock browser CORS to the deployed frontend origin(s), comma-separated.
+      - key: OKF_ALLOWED_ORIGINS
+        value: https://okf-weaver.vercel.app

@@ -9,6 +9,7 @@ model output and human edits pass through the identical gate.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -18,6 +19,53 @@ OKF_SPEC_VERSION = "0.1"
 
 #: Fallback bundle name when the user provides none (or only whitespace).
 DEFAULT_BUNDLE_NAME = "OKF Bundle"
+
+# --- Resource caps (defence against cost/resource-exhaustion DoS) ------------
+# Every paid or memory-bound path is bounded here at the validation gate, so a
+# single request can't fan out to thousands of model calls or build a giant
+# in-memory zip. Tune these together with the rate limits in `main.py`.
+
+#: Max tables per schema / bundle. Caps per-request Claude fan-out (one call per
+#: table) and the number of files serialized into a bundle.
+MAX_TABLES = 100
+#: Max columns per table (prompt size + serialized rows).
+MAX_COLUMNS_PER_TABLE = 500
+#: Max characters of raw schema text accepted by ``/api/ingest``. The SQL parser
+#: may re-parse this a few times across candidate dialects, so keep it bounded.
+MAX_CONTENT_CHARS = 5_000_000
+#: Max characters of free-text business context threaded into every prompt.
+MAX_CONTEXT_CHARS = 20_000
+#: Max length of a table/column name (also blocks pathological 5k-char names).
+NAME_MAX_LENGTH = 200
+
+#: Control characters and path separators are illegal in a name: they enable
+#: zip-slip / path traversal when a name becomes a file path on serialize.
+_ILLEGAL_NAME_CHARS = re.compile(r"[\x00-\x1f\x7f/\\]")
+
+
+def validate_identifier(value: str, kind: str) -> str:
+    """Reject names that could escape their file path or bloat the bundle.
+
+    Args:
+        value: The candidate table or column name.
+        kind: Human label for the error message (``"table"`` / ``"column"``).
+
+    Returns:
+        The unchanged name when it is safe.
+
+    Raises:
+        ValueError: If the name is blank, too long, contains control characters
+            or path separators, or contains a ``..`` traversal sequence.
+    """
+    if not value.strip():
+        raise ValueError(f"{kind} name must not be blank")
+    if len(value) > NAME_MAX_LENGTH:
+        raise ValueError(f"{kind} name exceeds {NAME_MAX_LENGTH} characters")
+    if _ILLEGAL_NAME_CHARS.search(value):
+        raise ValueError(f"{kind} name must not contain control characters or path separators")
+    if ".." in value:
+        raise ValueError(f"{kind} name must not contain '..'")
+    return value
 
 
 # --- Ingestion IR ------------------------------------------------------------
@@ -45,7 +93,7 @@ class Table(BaseModel):
     """A table as parsed from the source schema."""
 
     name: str
-    columns: list[Column] = Field(default_factory=list)
+    columns: list[Column] = Field(default_factory=list, max_length=MAX_COLUMNS_PER_TABLE)
     description: str | None = None
 
 
@@ -53,7 +101,7 @@ class SchemaIR(BaseModel):
     """Format-agnostic intermediate representation the AI module consumes."""
 
     source_format: SourceFormat
-    tables: list[Table] = Field(default_factory=list)
+    tables: list[Table] = Field(default_factory=list, max_length=MAX_TABLES)
 
 
 # --- OKF output --------------------------------------------------------------
@@ -75,6 +123,11 @@ class OKFColumn(BaseModel):
     nullable: bool = True
     references: str | None = None
 
+    @field_validator("name")
+    @classmethod
+    def _safe_name(cls, value: str) -> str:
+        return validate_identifier(value, "column")
+
 
 class OKFTable(BaseModel):
     """A generated OKF table entry."""
@@ -83,7 +136,14 @@ class OKFTable(BaseModel):
     description: str
     confidence: float = Field(ge=0.0, le=1.0)
     is_source_of_truth: bool = False
-    columns: list[OKFColumn] = Field(default_factory=list)
+    columns: list[OKFColumn] = Field(default_factory=list, max_length=MAX_COLUMNS_PER_TABLE)
+
+    @field_validator("name")
+    @classmethod
+    def _safe_name(cls, value: str) -> str:
+        # A table name becomes a file path (`tables/<name>.md`) on serialize;
+        # reject anything that could traverse out of the bundle directory.
+        return validate_identifier(value, "table")
 
     @model_validator(mode="after")
     def _unique_column_names(self) -> OKFTable:
@@ -99,7 +159,7 @@ class OKFBundle(BaseModel):
 
     okf_version: str = OKF_SPEC_VERSION
     name: str = DEFAULT_BUNDLE_NAME
-    tables: list[OKFTable]
+    tables: list[OKFTable] = Field(max_length=MAX_TABLES)
 
     @field_validator("name")
     @classmethod
@@ -130,7 +190,7 @@ class OKFBundle(BaseModel):
 class IngestRequest(BaseModel):
     """Body for ``POST /api/ingest``. ``format`` is auto-detected when omitted."""
 
-    content: str
+    content: str = Field(max_length=MAX_CONTENT_CHARS)
     format: SourceFormat | None = None
 
 
@@ -142,7 +202,7 @@ class GenerateRequest(BaseModel):
     """
 
     schema_: SchemaIR = Field(alias="schema")
-    context: str | None = None
+    context: str | None = Field(default=None, max_length=MAX_CONTEXT_CHARS)
 
     model_config = {"populate_by_name": True}
 
