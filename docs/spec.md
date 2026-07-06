@@ -46,7 +46,7 @@ The MVP is "done" when all of the following hold. Each maps to a test (§8) and 
 **Validation & output**
 
 - **100% of downloadable bundles pass OKF v0.1 validation** — a bundle is downloadable only if `OKFBundle` construction (incl. `@model_validator` cross-field rules) succeeds.
-- The exported artifact is a **conformant OKF v0.1 directory** (zipped): `index.md` with `okf_version`, one `tables/<name>.md` concept file per table each carrying the required `type` in parseable YAML frontmatter and a `# Schema` table with FK cross-links.
+- The exported artifact is a **conformant OKF v0.1 directory** (zipped): `index.md` with `okf_version` + bundle `name`, one `tables/<name>.md` concept file per table each carrying the required `type` in parseable YAML frontmatter and a `# Schema` table with FK cross-links.
 
 **Trust / human-in-the-loop**
 
@@ -122,7 +122,7 @@ Normalizes either input into a common internal representation before the AI ever
 ### 3.4 Bundle serializer (`okf/serialize.py`)
 
 - Renders the validated internal bundle to a **conformant OKF v0.1 directory** (per [GoogleCloudPlatform/knowledge-catalog `okf/SPEC.md`](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)) and zips it:
-  - `index.md` — bundle-root manifest carrying `okf_version: "0.1"` frontmatter and a linked listing of concepts (the one place `okf_version` is declared, per spec §5).
+  - `index.md` — bundle-root manifest carrying `okf_version: "0.1"` + a user-supplied `name` in frontmatter (the `name` also becomes the `#` title and the downloaded `.zip` filename, slugified; blank falls back to "OKF Bundle") and a linked listing of concepts (the one place `okf_version` is declared, per spec §5).
   - `log.md` — reserved dated update history.
   - `tables/<name>.md` — one concept per table: YAML frontmatter with the **required `type`** (`"Table"`) plus recommended `title` / `description` / `timestamp`; body is a `# Schema` Markdown table (`Column | Type | Description`) with **foreign keys rendered as bundle-relative cross-links** (`FK to [customers](/tables/customers.md)`).
 - **Conformance:** the spec's only hard requirement (§8) is parseable frontmatter with a non-empty `type` on every non-reserved file — which we satisfy by construction. The spec is intentionally loose ("no schema registry, no central authority, no required tooling").

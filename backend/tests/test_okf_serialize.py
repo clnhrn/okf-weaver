@@ -6,7 +6,7 @@ import zipfile
 import yaml
 
 from okf_weaver.models import OKFBundle, OKFColumn, OKFTable
-from okf_weaver.okf.serialize import bundle_to_files, serialize_bundle
+from okf_weaver.okf.serialize import bundle_filename, bundle_to_files, serialize_bundle
 
 
 def _bundle():
@@ -53,6 +53,21 @@ def test_index_declares_okf_version_and_links_concepts():
     idx = bundle_to_files(_bundle())["index.md"]
     assert _frontmatter(idx)["okf_version"] == "0.1"
     assert "[orders](/tables/orders.md)" in idx
+
+
+def test_index_uses_bundle_name_as_title_and_frontmatter():
+    bundle = OKFBundle(name="Acme Sales Warehouse", tables=_bundle().tables)
+    idx = bundle_to_files(bundle)["index.md"]
+    assert _frontmatter(idx)["name"] == "Acme Sales Warehouse"
+    assert "# Acme Sales Warehouse" in idx
+
+
+def test_bundle_filename_slugifies_name_with_zip_extension():
+    assert bundle_filename(OKFBundle(name="Acme Sales!! Warehouse", tables=_bundle().tables)) == (
+        "acme-sales-warehouse.zip"
+    )
+    # A name that slugifies to nothing falls back rather than yielding ".zip".
+    assert bundle_filename(OKFBundle(name="—", tables=_bundle().tables)) == "okf-bundle.zip"
 
 
 def test_table_frontmatter_has_required_type_and_recommended_fields():

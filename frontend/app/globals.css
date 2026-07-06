@@ -145,6 +145,16 @@ body {
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
+/* The bundle header carries the most controls (status, view toggle, name,
+   download). Let it wrap to a second row instead of overflowing when the pane
+   is dragged narrow. */
+.pane.bundle .pane-head {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 34px;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
 
 .label {
   text-transform: uppercase;
@@ -357,6 +367,26 @@ input[type="checkbox"]:focus-visible,
   to {
     transform: rotate(360deg);
   }
+}
+
+.bundle-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  max-width: 16rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  padding: 0.3rem 0.5rem;
+  font-family: var(--sans);
+  font-size: 12px;
+}
+.bundle-name::placeholder {
+  color: var(--faint);
+}
+.bundle-name:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .seg {
