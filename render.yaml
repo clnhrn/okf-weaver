@@ -26,4 +26,4 @@ services:
         value: "5"
       # Lock browser CORS to the deployed frontend origin(s), comma-separated.
       - key: OKF_ALLOWED_ORIGINS
-        value: https://okf-weaver.vercel.app
+        value: https://okfweaver.dev,https://okf-weaver.vercel.app
