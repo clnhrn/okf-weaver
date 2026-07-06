@@ -11,19 +11,8 @@ import type { Bundle, OKFColumn, OKFTable } from "./types";
 import { useTheme, type ThemeChoice } from "./useTheme";
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
-const MODEL = "claude-sonnet-4-6";
 
 type Phase = "idle" | "generating" | "done" | "error";
-type Usage = {
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_input_tokens: number;
-  cache_creation_input_tokens: number;
-  estimated_cost_usd: number;
-  model: string;
-};
-
-const tok = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 export default function Home() {
   const [content, setContent] = useState("");
@@ -42,7 +31,6 @@ export default function Home() {
   const [files, setFiles] = useState<Record<string, string> | null>(null);
   const [selectedFile, setSelectedFile] = useState("index.md");
   const [fileMode, setFileMode] = useState<"rendered" | "raw">("rendered");
-  const [usage, setUsage] = useState<Usage | null>(null);
   const [split, setSplit] = useState(50); // left pane width, % of the workspace
   const workspaceRef = useRef<HTMLElement>(null);
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeMode } = useTheme();
@@ -109,7 +97,6 @@ export default function Home() {
     setWarnings([]);
     setView("edit");
     setFiles(null);
-    setUsage(null);
     try {
       const ing = await fetch(`${API}/api/ingest`, {
         method: "POST",
@@ -148,10 +135,9 @@ export default function Home() {
           );
         }
         if (event === "done") {
-          const d = data as { bundle: Bundle; warnings: string[]; usage: Usage };
+          const d = data as { bundle: Bundle; warnings: string[] };
           setOkfVersion(d.bundle.okf_version);
           setWarnings(d.warnings ?? []);
-          setUsage(d.usage ?? null);
         }
       });
       setPhase("done");
@@ -239,7 +225,6 @@ export default function Home() {
             </button>
           ))}
         </div>
-        <span className="meta mono">model {MODEL}</span>
       </header>
 
       <main
@@ -467,13 +452,6 @@ export default function Home() {
       <footer className="statusbar mono">
         <span>only names + types sent to the model — never row data</span>
         <span className="grow" />
-        {usage && (
-          <span className="usage" title={`model ${usage.model}`}>
-            {tok(usage.input_tokens)} in · {tok(usage.output_tokens)} out
-            {usage.cache_read_input_tokens > 0 && ` · ${tok(usage.cache_read_input_tokens)} cached`} ·
-            ~${usage.estimated_cost_usd.toFixed(4)}
-          </span>
-        )}
         <span className="muted">OKF v{okfVersion}</span>
       </footer>
     </div>
