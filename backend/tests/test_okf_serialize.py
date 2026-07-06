@@ -98,3 +98,22 @@ def test_serialize_bundle_returns_zip_of_the_okf_directory():
         assert {"index.md", "log.md", "tables/orders.md"} <= names
         idx = yaml.safe_load(z.read("index.md").decode().split("---\n")[1])
         assert idx["okf_version"] == "0.1"
+
+
+def test_serialize_never_emits_a_path_that_escapes_the_bundle_dir():
+    # Defence in depth: the model gate already rejects traversal names, but if a
+    # malicious name ever bypasses it, serialization must still keep every entry
+    # inside `tables/` (no `..`, no absolute paths, no reserved-file overwrite).
+    evil = OKFTable.model_construct(
+        name="../../../../tmp/pwned",
+        description="x",
+        confidence=0.9,
+        is_source_of_truth=False,
+        columns=[],
+    )
+    bundle = OKFBundle.model_construct(okf_version="0.1", name="b", tables=[evil])
+    names = zipfile.ZipFile(io.BytesIO(serialize_bundle(bundle))).namelist()
+    for name in names:
+        assert ".." not in name
+        assert name.startswith(("index.md", "log.md", "tables/"))
+        assert name.count("/") <= 1  # tables/<file>, never a nested escape

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from okf_weaver import budget
 from okf_weaver.main import app, get_client, limiter
 
 DDL = "CREATE TABLE orders (id INTEGER PRIMARY KEY, total NUMERIC(12,2));"
@@ -26,8 +27,9 @@ OKF_TABLE_PAYLOAD = {
 
 
 class _FakeStream:
-    def __init__(self, content):
+    def __init__(self, content, usage=None):
         self._content = content
+        self._usage = usage
 
     def __enter__(self):
         return self
@@ -47,7 +49,7 @@ class _FakeStream:
                     )
 
     def get_final_message(self):
-        return SimpleNamespace(content=self._content, usage=None)
+        return SimpleNamespace(content=self._content, usage=self._usage)
 
 
 class FakeClient:
@@ -56,7 +58,9 @@ class FakeClient:
         self.messages = SimpleNamespace(stream=self._stream)
 
     def _stream(self, **kwargs):
-        return _FakeStream(self._responses.pop(0))
+        item = self._responses.pop(0)
+        content, usage = item if isinstance(item, tuple) else (item, None)
+        return _FakeStream(content, usage)
 
 
 @pytest.fixture(autouse=True)
@@ -64,6 +68,17 @@ def _reset_limiter():
     # Isolate per-IP rate-limit counters so tests don't bleed into each other.
     limiter.reset()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_budget():
+    # Keep the process-wide spend guard disabled + empty across tests unless a
+    # test opts in; otherwise accumulated spend would bleed between tests.
+    budget.guard.budget_usd = 0
+    budget.guard.reset()
+    yield
+    budget.guard.budget_usd = 0
+    budget.guard.reset()
 
 
 @pytest.fixture
@@ -101,6 +116,14 @@ def test_ingest_auto_detects_dbt_manifest_without_format(client):
 
 def test_ingest_rejects_unparseable_sql_with_422(client):
     resp = client.post("/api/ingest", json={"format": "sql", "content": "SELECT 1;"})
+    assert resp.status_code == 422
+
+
+def test_ingest_over_table_cap_returns_422_not_500(client):
+    # Exceeding the SchemaIR table cap raises a Pydantic ValidationError inside
+    # the parser; it must surface as a clean 422, never an unhandled 500.
+    ddl = "".join(f"CREATE TABLE t{i} (id INT);" for i in range(101))
+    resp = client.post("/api/ingest", json={"format": "sql", "content": ddl})
     assert resp.status_code == 422
 
 
@@ -166,6 +189,78 @@ def test_generate_emits_error_event_when_a_table_fails(client):
         kinds = [e for e, _ in _parse_sse(resp.text)]
         assert "error" in kinds
         assert "done" not in kinds
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_error_event_hides_internals_and_logs_them(client, caplog):
+    # The client must get a generic message + correlation id, never the raw
+    # exception text (which can leak Anthropic/validation internals). M3.
+    bad = {**OKF_TABLE_PAYLOAD, "confidence": 9}
+    app.dependency_overrides[get_client] = lambda: FakeClient(_tool_use(bad), _tool_use(bad))
+    try:
+        schema = {
+            "source_format": "sql",
+            "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
+        }
+        caplog.set_level(logging.ERROR)
+        resp = client.post("/api/generate", json={"schema": schema})
+        error = next(d for e, d in _parse_sse(resp.text) if e == "error")
+        assert "error_id" in error
+        assert error["error_id"]
+        # Generic client message: no raw confidence/validation detail leaks.
+        assert "confidence" not in error["message"].lower()
+        assert "validation" not in error["message"].lower()
+        # The full detail (and the same id) is captured server-side instead.
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        assert error["error_id"] in logged
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_refuses_when_spend_ceiling_reached(client, caplog):
+    # H1 backstop: once the window's budget is exhausted, generation is refused
+    # with a generic capacity message (no budget internals) and no work is done.
+    budget.guard.budget_usd = 1.0
+    budget.guard.record(1.0)  # exhaust the window
+    app.dependency_overrides[get_client] = lambda: FakeClient(_tool_use(OKF_TABLE_PAYLOAD))
+    try:
+        schema = {
+            "source_format": "sql",
+            "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
+        }
+        caplog.set_level(logging.WARNING)
+        resp = client.post("/api/generate", json={"schema": schema})
+        assert resp.status_code == 200  # SSE stream carries the refusal
+        events = _parse_sse(resp.text)
+        kinds = [e for e, _ in events]
+        assert kinds == ["error"]  # refused up front: no token/table/done
+        error = events[0][1]
+        assert "capacity" in error["message"].lower()
+        assert "$" not in error["message"]  # ceiling not disclosed to the client
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_records_estimated_spend_against_the_ceiling(client):
+    # A successful run debits the window budget by its estimated cost.
+    budget.guard.budget_usd = 100.0
+    usage = SimpleNamespace(
+        input_tokens=1_000_000, output_tokens=0,
+        cache_read_input_tokens=0, cache_creation_input_tokens=0,
+    )
+    app.dependency_overrides[get_client] = lambda: FakeClient(
+        _tool_use(OKF_TABLE_PAYLOAD, usage=usage)
+    )
+    try:
+        schema = {
+            "source_format": "sql",
+            "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
+        }
+        resp = client.post("/api/generate", json={"schema": schema})
+        assert resp.status_code == 200
+        # 1M input tokens at $3/M => ~$3 debited; remaining drops below the cap.
+        assert budget.guard.remaining() == pytest.approx(97.0, abs=0.5)
     finally:
         app.dependency_overrides.clear()
 
@@ -238,16 +333,64 @@ def test_ingest_is_rate_limited(client):
     assert 429 in codes  # subsequent requests are rejected
 
 
+def test_rate_limit_buckets_are_per_forwarded_client_ip(client):
+    # Behind Render's proxy, request.client.host is the proxy for everyone, so
+    # limits must key off the real client IP in X-Forwarded-For. Two distinct
+    # clients must not share a bucket, and one client can't drain another's. H2.
+    body = {"format": "sql", "content": DDL}
+
+    def hit(ip):
+        return client.post(
+            "/api/ingest", json=body, headers={"X-Forwarded-For": ip}
+        ).status_code
+
+    codes_a = [hit("1.1.1.1") for _ in range(31)]
+    assert codes_a.count(200) == 30
+    assert codes_a[-1] == 429  # client A is now exhausted
+    assert hit("2.2.2.2") == 200  # client B has its own fresh bucket
+
+
+def test_forwarded_for_uses_client_not_intermediate_proxies(client):
+    # The originating client is the leftmost X-Forwarded-For entry; appended
+    # proxy hops must not change the bucket for a given client.
+    body = {"format": "sql", "content": DDL}
+    a1 = client.post(
+        "/api/ingest", json=body, headers={"X-Forwarded-For": "9.9.9.9, 10.0.0.1"}
+    ).status_code
+    a2 = client.post(
+        "/api/ingest", json=body, headers={"X-Forwarded-For": "9.9.9.9, 10.0.0.2"}
+    ).status_code
+    assert a1 == 200 and a2 == 200  # same client, different downstream proxy
+
+
 def test_health_is_not_rate_limited(client):
     codes = [client.get("/api/health").status_code for _ in range(40)]
     assert set(codes) == {200}
 
 
+def test_cors_allows_configured_origin_and_omits_unknown_ones(client):
+    allowed = client.post(
+        "/api/validate",
+        json={"tables": [OKF_TABLE_PAYLOAD]},
+        headers={"Origin": "https://okf-weaver.vercel.app"},
+    )
+    assert allowed.headers.get("access-control-allow-origin") == "https://okf-weaver.vercel.app"
+
+    evil = client.post(
+        "/api/validate",
+        json={"tables": [OKF_TABLE_PAYLOAD]},
+        headers={"Origin": "https://evil.example"},
+    )
+    # A non-allowlisted origin gets no ACAO header (browser blocks the read).
+    assert "access-control-allow-origin" not in {k.lower() for k in evil.headers}
+
+
 # --- helpers -----------------------------------------------------------------
 
 
-def _tool_use(payload):
-    return [SimpleNamespace(type="tool_use", input=payload)]
+def _tool_use(payload, usage=None):
+    content = [SimpleNamespace(type="tool_use", input=payload)]
+    return (content, usage) if usage is not None else content
 
 
 def _parse_sse(text):

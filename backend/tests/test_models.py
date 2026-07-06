@@ -4,8 +4,15 @@ import pytest
 from pydantic import ValidationError
 
 from okf_weaver.models import (
+    MAX_COLUMNS_PER_TABLE,
+    MAX_CONTENT_CHARS,
+    MAX_CONTEXT_CHARS,
+    MAX_TABLES,
+    NAME_MAX_LENGTH,
     OKF_SPEC_VERSION,
     Column,
+    GenerateRequest,
+    IngestRequest,
     OKFBundle,
     OKFColumn,
     OKFTable,
@@ -124,3 +131,105 @@ def test_okf_table_rejects_duplicate_column_names():
                 OKFColumn(name="id", definition="b", confidence=0.9),
             ],
         )
+
+
+# --- M1: name validators (zip-slip / path traversal) -------------------------
+
+
+@pytest.mark.parametrize(
+    "evil",
+    [
+        "../../../../tmp/pwned",
+        "../index",
+        "tables/../x",
+        "a/b",
+        "a\\b",
+        "..",
+        "foo/..",
+        "with\nnewline",
+        "null\x00byte",
+    ],
+)
+def test_okf_table_name_rejects_path_traversal_and_control_chars(evil):
+    with pytest.raises(ValidationError):
+        OKFTable(
+            name=evil,
+            description="d",
+            confidence=0.9,
+            columns=[OKFColumn(name="id", definition="d", confidence=0.9)],
+        )
+
+
+def test_okf_table_name_rejects_blank():
+    with pytest.raises(ValidationError):
+        OKFTable(name="   ", description="d", confidence=0.9, columns=[])
+
+
+def test_okf_table_name_rejects_overlong_name():
+    with pytest.raises(ValidationError):
+        OKFTable(
+            name="x" * (NAME_MAX_LENGTH + 1),
+            description="d",
+            confidence=0.9,
+            columns=[OKFColumn(name="id", definition="d", confidence=0.9)],
+        )
+
+
+@pytest.mark.parametrize("ok", ["orders", "Order Details", "dim_customer", "schema.table", "v1.2-beta"])
+def test_okf_table_name_accepts_normal_identifiers(ok):
+    table = OKFTable(
+        name=ok,
+        description="d",
+        confidence=0.9,
+        columns=[OKFColumn(name="id", definition="d", confidence=0.9)],
+    )
+    assert table.name == ok
+
+
+@pytest.mark.parametrize("evil", ["../../etc/passwd", "a/b", "bad\x00", ".."])
+def test_okf_column_name_rejects_dangerous_values(evil):
+    with pytest.raises(ValidationError):
+        OKFColumn(name=evil, definition="d", confidence=0.9)
+
+
+# --- H1 / M2: size caps ------------------------------------------------------
+
+
+def _col(i):
+    return Column(name=f"c{i}", data_type="int")
+
+
+def test_schema_ir_rejects_more_than_max_tables():
+    tables = [Table(name=f"t{i}") for i in range(MAX_TABLES + 1)]
+    with pytest.raises(ValidationError):
+        SchemaIR(source_format=SourceFormat.SQL, tables=tables)
+
+
+def test_schema_ir_accepts_max_tables():
+    tables = [Table(name=f"t{i}") for i in range(MAX_TABLES)]
+    assert len(SchemaIR(source_format=SourceFormat.SQL, tables=tables).tables) == MAX_TABLES
+
+
+def test_table_rejects_more_than_max_columns():
+    with pytest.raises(ValidationError):
+        Table(name="wide", columns=[_col(i) for i in range(MAX_COLUMNS_PER_TABLE + 1)])
+
+
+def test_okf_bundle_rejects_more_than_max_tables():
+    with pytest.raises(ValidationError):
+        OKFBundle(tables=[_okf_table(f"t{i}") for i in range(MAX_TABLES + 1)])
+
+
+def test_ingest_request_rejects_overlong_content():
+    with pytest.raises(ValidationError):
+        IngestRequest(content="x" * (MAX_CONTENT_CHARS + 1))
+
+
+def test_ingest_request_accepts_content_at_cap():
+    assert IngestRequest(content="x" * MAX_CONTENT_CHARS).content
+
+
+def test_generate_request_rejects_overlong_context():
+    schema = SchemaIR(source_format=SourceFormat.SQL, tables=[Table(name="t")])
+    with pytest.raises(ValidationError):
+        GenerateRequest(schema=schema, context="x" * (MAX_CONTEXT_CHARS + 1))
