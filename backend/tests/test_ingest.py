@@ -51,6 +51,71 @@ def test_parse_sql_ddl_extracts_foreign_keys_inline_and_table_level():
     assert cols["id"].references is None
 
 
+def test_parse_sql_ddl_reads_alter_table_constraints_pg_dump_style():
+    # pg_dump / SQL Server emit bare CREATE TABLEs, then PKs and FKs as separate
+    # ALTER TABLE ... ADD CONSTRAINT statements. Fold those back in.
+    ddl = """
+    CREATE TABLE public.customers (
+        id integer NOT NULL,
+        email character varying(255) NOT NULL
+    );
+    CREATE TABLE public.orders (
+        id integer NOT NULL,
+        customer_id integer NOT NULL
+    );
+    ALTER TABLE ONLY public.customers ADD CONSTRAINT customers_pkey PRIMARY KEY (id);
+    ALTER TABLE ONLY public.orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id);
+    ALTER TABLE ONLY public.orders
+        ADD CONSTRAINT orders_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id);
+    """
+    tables = {t.name: {c.name: c for c in t.columns} for t in parse_sql_ddl(ddl).tables}
+    assert tables["customers"]["id"].is_primary_key is True
+    assert tables["orders"]["id"].is_primary_key is True
+    assert tables["orders"]["customer_id"].references == "customers.id"
+
+
+def test_parse_sql_ddl_alter_primary_key_marks_column_not_null():
+    ddl = """
+    CREATE TABLE t (id integer, name text);
+    ALTER TABLE ONLY t ADD CONSTRAINT t_pkey PRIMARY KEY (id);
+    """
+    cols = {c.name: c for c in parse_sql_ddl(ddl).tables[0].columns}
+    assert cols["id"].is_primary_key is True
+    assert cols["id"].nullable is False
+
+
+def test_parse_sql_ddl_handles_mysqldump_backticks_and_engine_options():
+    ddl = """
+    CREATE TABLE `orders` (
+      `id` int NOT NULL,
+      `customer_id` int NOT NULL,
+      PRIMARY KEY (`id`),
+      KEY `idx_cust` (`customer_id`),
+      CONSTRAINT `fk_cust` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    """
+    cols = {c.name: c for c in parse_sql_ddl(ddl).tables[0].columns}
+    assert cols["id"].is_primary_key is True
+    assert cols["customer_id"].references == "customers.id"
+
+
+def test_parse_sql_ddl_handles_sqlserver_brackets_and_go_separators():
+    ddl = """
+    CREATE TABLE [dbo].[orders](
+        [id] [int] NOT NULL,
+        [customer_id] [int] NOT NULL,
+     CONSTRAINT [PK_orders] PRIMARY KEY CLUSTERED ([id] ASC)
+    );
+    GO
+    ALTER TABLE [dbo].[orders] WITH CHECK ADD CONSTRAINT [FK_o]
+        FOREIGN KEY([customer_id]) REFERENCES [dbo].[customers] ([id]);
+    GO
+    """
+    cols = {c.name: c for c in parse_sql_ddl(ddl).tables[0].columns}
+    assert cols["id"].is_primary_key is True
+    assert cols["customer_id"].references == "customers.id"
+
+
 def test_parse_sql_ddl_raises_when_no_create_table():
     with pytest.raises(ValueError):
         parse_sql_ddl("SELECT 1;")

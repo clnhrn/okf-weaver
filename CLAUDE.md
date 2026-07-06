@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-OKF Weaver ingests a warehouse schema (raw SQL DDL **or** a dbt `manifest.json`), uses Claude to generate curated **Open Knowledge Format (OKF)** context per table, validates it, lets a human review/edit, and exports a portable OKF bundle. Stateless: no accounts, no persistence, no live warehouse connectors in v1.
+OKF Weaver ingests a **relational database** schema (raw SQL DDL from any RDBMS — Postgres, SQL Server, MySQL, or a warehouse like Snowflake/BigQuery — **or** a dbt `manifest.json`), uses Claude to generate curated **Open Knowledge Format (OKF)** context per table, validates it, lets a human review/edit, and exports a portable OKF bundle. Stateless: no accounts, no persistence, no live database connectors in v1. The SQL parser also folds in constraints declared via `ALTER TABLE ... ADD CONSTRAINT` (how `pg_dump` and SQL Server/SSMS emit PKs/FKs), so raw dumps work without hand-editing.
 
 ## Commands
 

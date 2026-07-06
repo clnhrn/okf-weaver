@@ -1,6 +1,15 @@
-"""Parse raw SQL DDL (`CREATE TABLE ...`) into a SchemaIR via sqlglot."""
+"""Parse raw SQL DDL (`CREATE TABLE ...`) into a SchemaIR via sqlglot.
+
+Handles real database dumps, not just clean ANSI SQL: MySQL (`mysqldump`)
+backtick-quoted identifiers, SQL Server (SSMS) `[bracket]` identifiers and `GO`
+batch separators, and Postgres `pg_dump` where PKs/FKs arrive as separate
+`ALTER TABLE ... ADD CONSTRAINT` statements. The dialect is auto-detected from
+the SQL when not given.
+"""
 
 from __future__ import annotations
+
+import re
 
 import sqlglot
 from sqlglot import exp
@@ -13,7 +22,8 @@ def parse_sql_ddl(ddl: str, *, dialect: str | None = None) -> SchemaIR:
 
     Args:
         ddl: One or more SQL statements. Non-`CREATE TABLE` statements are ignored.
-        dialect: Optional sqlglot dialect hint; ``None`` lets sqlglot infer.
+        dialect: Optional sqlglot dialect hint. When ``None``, the dialect is
+            auto-detected and a few candidates are tried until one yields tables.
 
     Returns:
         A `SchemaIR` with ``source_format = SourceFormat.SQL``.
@@ -21,10 +31,49 @@ def parse_sql_ddl(ddl: str, *, dialect: str | None = None) -> SchemaIR:
     Raises:
         ValueError: If the input can't be parsed or contains no `CREATE TABLE`.
     """
-    try:
-        statements = sqlglot.parse(ddl, read=dialect)
-    except sqlglot.errors.ParseError as exc:
-        raise ValueError(_friendly_parse_error(exc)) from exc
+    cleaned = _strip_batch_separators(ddl)
+    candidates = [dialect] if dialect is not None else _candidate_dialects(cleaned)
+
+    last_error: sqlglot.errors.ParseError | None = None
+    for read in candidates:
+        try:
+            statements = sqlglot.parse(cleaned, read=read)
+        except sqlglot.errors.ParseError as exc:
+            last_error = exc
+            continue
+        tables = _tables_from(statements)
+        if tables:
+            return SchemaIR(source_format=SourceFormat.SQL, tables=tables)
+
+    if last_error is not None:
+        raise ValueError(_friendly_parse_error(last_error))
+    raise ValueError(
+        "No CREATE TABLE statements found. Paste your schema as one or more "
+        "CREATE TABLE definitions (SQL only, no surrounding text)."
+    )
+
+
+def _strip_batch_separators(ddl: str) -> str:
+    """Drop `GO` lines — a SSMS/sqlcmd batch separator that isn't valid SQL."""
+    return re.sub(r"(?im)^\s*GO\s*;?\s*$", "", ddl)
+
+
+def _candidate_dialects(sql: str) -> list[str | None]:
+    """Ordered sqlglot dialects to try: detected first, then a fallback sweep."""
+    ordered: list[str | None] = []
+    if "`" in sql:  # backtick-quoted identifiers -> MySQL
+        ordered.append("mysql")
+    if re.search(r"\[[A-Za-z_#\[]", sql):  # [bracket] identifiers -> SQL Server
+        ordered.append("tsql")
+    for dialect in (None, "postgres", "mysql", "tsql"):
+        if dialect not in ordered:
+            ordered.append(dialect)
+    return ordered
+
+
+def _tables_from(statements: list[exp.Expression]) -> list[Table]:
+    """Build `Table`s from CREATE statements, folding in ALTER-added constraints."""
+    alter_pks, alter_fks = _alter_constraints(statements)
 
     tables: list[Table] = []
     for stmt in statements:
@@ -34,19 +83,11 @@ def parse_sql_ddl(ddl: str, *, dialect: str | None = None) -> SchemaIR:
         table = schema.find(exp.Table)
         if table is None:
             continue
-        pk_from_table = _table_level_pk_columns(schema)
-        fks = _foreign_keys(schema)
-        columns = [
-            _column(col_def, pk_from_table, fks) for col_def in schema.find_all(exp.ColumnDef)
-        ]
+        pk_cols = _pk_columns(schema) | alter_pks.get(table.name, set())
+        fks = {**_inline_refs(schema), **_table_fks(schema), **alter_fks.get(table.name, {})}
+        columns = [_column(col_def, pk_cols, fks) for col_def in schema.find_all(exp.ColumnDef)]
         tables.append(Table(name=table.name, columns=columns))
-
-    if not tables:
-        raise ValueError(
-            "No CREATE TABLE statements found. Paste your schema as one or more "
-            "CREATE TABLE definitions (SQL only, no surrounding text)."
-        )
-    return SchemaIR(source_format=SourceFormat.SQL, tables=tables)
+    return tables
 
 
 def _friendly_parse_error(exc: sqlglot.errors.ParseError) -> str:
@@ -82,12 +123,35 @@ def _column(col_def: exp.ColumnDef, pk_columns: set[str], fks: dict[str, str]) -
     )
 
 
-def _foreign_keys(schema: exp.Schema) -> dict[str, str]:
-    """Map each foreign-key column to its ``"table.column"`` target.
+def _alter_constraints(
+    statements: list[exp.Expression],
+) -> tuple[dict[str, set[str]], dict[str, dict[str, str]]]:
+    """Collect PK/FK constraints declared via ``ALTER TABLE ... ADD CONSTRAINT``.
 
-    Handles both inline ``col ... REFERENCES t(c)`` and table-level
-    ``FOREIGN KEY (col) REFERENCES t(c)``.
+    ``pg_dump`` and SQL Server/SSMS emit bare ``CREATE TABLE``s and attach primary
+    and foreign keys afterward as separate ``ALTER TABLE`` statements, so those
+    constraints are folded back onto the table by name. Returns ``(pks, fks)``
+    keyed by table name.
     """
+    pks: dict[str, set[str]] = {}
+    fks: dict[str, dict[str, str]] = {}
+    for stmt in statements:
+        if not isinstance(stmt, exp.Alter):
+            continue
+        table = stmt.find(exp.Table)
+        if table is None:
+            continue
+        pk_cols = _pk_columns(stmt)
+        fk_map = _table_fks(stmt)
+        if pk_cols:
+            pks.setdefault(table.name, set()).update(pk_cols)
+        if fk_map:
+            fks.setdefault(table.name, {}).update(fk_map)
+    return pks, fks
+
+
+def _inline_refs(schema: exp.Schema) -> dict[str, str]:
+    """Foreign keys written inline on a column: ``col ... REFERENCES t(c)``."""
     refs: dict[str, str] = {}
     for col_def in schema.find_all(exp.ColumnDef):
         for constraint in col_def.args.get("constraints") or []:
@@ -95,7 +159,13 @@ def _foreign_keys(schema: exp.Schema) -> dict[str, str]:
                 target = _reference_target(constraint.kind.this)
                 if target:
                     refs[col_def.name] = target
-    for fk in schema.find_all(exp.ForeignKey):
+    return refs
+
+
+def _table_fks(expr: exp.Expression) -> dict[str, str]:
+    """Table-level ``FOREIGN KEY (col) REFERENCES t(c)`` in a CREATE or ALTER."""
+    refs: dict[str, str] = {}
+    for fk in expr.find_all(exp.ForeignKey):
         local = [e.name for e in fk.expressions]
         ref = fk.args.get("reference")
         if ref is None:
@@ -118,9 +188,31 @@ def _reference_target(ref_schema: exp.Expression) -> str | None:
     return f"{table.name}.{cols[0]}" if cols else f"{table.name}.id"
 
 
-def _table_level_pk_columns(schema: exp.Schema) -> set[str]:
-    """Column names named in a table-level ``PRIMARY KEY (...)`` constraint."""
+def _pk_columns(expr: exp.Expression) -> set[str]:
+    """Columns named in a table-level PRIMARY KEY, across dialects.
+
+    Covers ANSI/Postgres/MySQL ``PRIMARY KEY (cols)`` and ``ALTER ... ADD ...
+    PRIMARY KEY (cols)`` (an ``exp.PrimaryKey`` of bare identifiers) as well as
+    SQL Server's ``CONSTRAINT [pk] PRIMARY KEY CLUSTERED ([id] ASC)`` (a
+    ``Constraint`` whose columns hang off a sibling clustered-index node).
+    """
     names: set[str] = set()
-    for pk in schema.find_all(exp.PrimaryKey):
-        names.update(col.name for col in pk.expressions)
+    for pk in expr.find_all(exp.PrimaryKey):
+        names |= _pk_constraint_columns(pk)
+    for constraint in expr.find_all(exp.Constraint):
+        if constraint.find(exp.PrimaryKeyColumnConstraint) is not None:
+            names |= _pk_constraint_columns(constraint)
     return names
+
+
+def _pk_constraint_columns(node: exp.Expression) -> set[str]:
+    """Column names referenced by a PK node, ignoring the constraint's own name."""
+    cols = {c.name for c in node.find_all(exp.Column) if c.name}
+    if cols:
+        return cols
+    # Postgres/ANSI list PK columns as bare identifiers directly under the node.
+    return {
+        e.name
+        for e in getattr(node, "expressions", [])
+        if isinstance(e, exp.Identifier) and e.name
+    }
