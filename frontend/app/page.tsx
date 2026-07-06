@@ -208,8 +208,19 @@ export default function Home() {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="mark" aria-hidden />
-        <span className="wordmark">OKF Weaver</span>
+        <svg className="mark" viewBox="0 0 76 76" aria-hidden focusable="false">
+          <g stroke="var(--accent-2)" strokeWidth="6" strokeLinecap="round">
+            <line x1="20" y1="28" x2="56" y2="28" />
+            <line x1="20" y1="48" x2="56" y2="48" />
+          </g>
+          <g stroke="var(--accent)" strokeWidth="6" strokeLinecap="round">
+            <line x1="30" y1="16" x2="30" y2="60" />
+            <line x1="46" y1="16" x2="46" y2="60" />
+          </g>
+        </svg>
+        <span className="wordmark">
+          OKF <span className="wordmark-accent">Weaver</span>
+        </span>
         <span className="tagline mono">schema → OKF v{okfVersion} bundle</span>
         <span className="grow" />
         <div className="seg small theme-seg" role="group" aria-label="Theme">
