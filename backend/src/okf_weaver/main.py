@@ -51,6 +51,9 @@ app.add_middleware(
     allow_origins=["*"],  # MVP: thin public client; no cookies/credentials
     allow_methods=["*"],
     allow_headers=["*"],
+    # Content-Disposition isn't a CORS-safelisted response header, so without
+    # this the browser strips it and the frontend can't read the zip filename.
+    expose_headers=["Content-Disposition"],
 )
 
 

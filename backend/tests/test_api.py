@@ -179,6 +179,20 @@ def test_download_names_the_zip_from_the_bundle_name(client):
     assert "acme-sales-warehouse.zip" in resp.headers["content-disposition"]
 
 
+def test_download_exposes_content_disposition_cross_origin(client):
+    # The browser can only read the filename from Content-Disposition if the
+    # server exposes it via CORS; sending an Origin makes the middleware emit
+    # the CORS headers (plain same-origin test requests don't).
+    resp = client.post(
+        "/api/download",
+        json={"name": "Acme Sales Warehouse", "tables": [OKF_TABLE_PAYLOAD]},
+        headers={"Origin": "https://okf-weaver.vercel.app"},
+    )
+    assert resp.status_code == 200
+    exposed = resp.headers.get("access-control-expose-headers", "").lower()
+    assert "content-disposition" in exposed
+
+
 def test_download_rejects_invalid_bundle_with_422(client):
     bad = {"tables": [{**OKF_TABLE_PAYLOAD, "confidence": 5}]}
     assert client.post("/api/download", json=bad).status_code == 422
