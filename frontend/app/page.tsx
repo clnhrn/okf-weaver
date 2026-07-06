@@ -30,6 +30,7 @@ export default function Home() {
   const [context, setContext] = useState("");
   const [showContext, setShowContext] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [name, setName] = useState("");
   const [tables, setTables] = useState<OKFTable[]>([]);
   const [partials, setPartials] = useState<Record<string, string>>({});
   const [expected, setExpected] = useState<string[]>([]);
@@ -89,6 +90,8 @@ export default function Home() {
     if (!file) return;
     setContent(await file.text());
     setFileName(file.name);
+    // Suggest a bundle name from the filename (editable); user can override.
+    if (!name.trim()) setName(file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "));
     e.target.value = "";
   }
 
@@ -177,7 +180,7 @@ export default function Home() {
     const resp = await fetch(`${API}/api/preview`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ okf_version: okfVersion, tables }),
+      body: JSON.stringify({ okf_version: okfVersion, name, tables }),
     });
     if (!resp.ok) {
       setError("Preview failed");
@@ -194,18 +197,21 @@ export default function Home() {
     const resp = await fetch(`${API}/api/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ okf_version: okfVersion, tables }),
+      body: JSON.stringify({ okf_version: okfVersion, name, tables }),
     });
     if (!resp.ok) {
       const d = await resp.json().catch(() => ({ detail: "Download failed" }));
       setError(d.detail ?? "Download failed");
       return;
     }
+    // Let the server's slugified name drive the filename (single source of truth).
+    const disposition = resp.headers.get("content-disposition") ?? "";
+    const fname = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)?.[1] ?? "okf-bundle.zip";
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "okf-bundle.zip";
+    a.download = decodeURIComponent(fname);
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -355,6 +361,17 @@ export default function Home() {
               </div>
             )}
             <span className="grow" />
+            {phase === "done" && (
+              <input
+                className="bundle-name"
+                value={name}
+                spellCheck={false}
+                aria-label="Bundle name"
+                placeholder="Name this bundle"
+                title="Names the .zip and the bundle's index.md"
+                onChange={(e) => setName(e.target.value)}
+              />
+            )}
             <button className="primary" onClick={download} disabled={!canDownload}>
               Approve &amp; download .zip
             </button>

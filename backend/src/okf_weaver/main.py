@@ -32,6 +32,7 @@ from okf_weaver.models import (
 )
 from okf_weaver.okf import (
     build_bundle,
+    bundle_filename,
     bundle_to_files,
     check_against_schema,
     format_validation_error,
@@ -153,7 +154,7 @@ def download(request: Request, bundle: OKFBundle) -> Response:
     return Response(
         content=serialize_bundle(bundle),
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=okf-bundle.zip"},
+        headers={"Content-Disposition": f"attachment; filename={bundle_filename(bundle)}"},
     )
 
 

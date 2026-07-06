@@ -11,10 +11,13 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 #: OKF spec version this build targets. Bump on each Google OKF release.
 OKF_SPEC_VERSION = "0.1"
+
+#: Fallback bundle name when the user provides none (or only whitespace).
+DEFAULT_BUNDLE_NAME = "OKF Bundle"
 
 
 # --- Ingestion IR ------------------------------------------------------------
@@ -95,7 +98,15 @@ class OKFBundle(BaseModel):
     """A full OKF v0.1 bundle. Successful construction == structurally valid."""
 
     okf_version: str = OKF_SPEC_VERSION
+    name: str = DEFAULT_BUNDLE_NAME
     tables: list[OKFTable]
+
+    @field_validator("name")
+    @classmethod
+    def _clean_name(cls, value: str) -> str:
+        # Collapse whitespace/newlines into a single-line title; cap length so it
+        # stays a sane filename and heading. Blank falls back to the default.
+        return " ".join(value.split())[:120] or DEFAULT_BUNDLE_NAME
 
     @model_validator(mode="after")
     def _validate_bundle(self) -> OKFBundle:

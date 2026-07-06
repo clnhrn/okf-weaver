@@ -171,6 +171,14 @@ def test_download_returns_zip(client):
         assert "index.md" in z.namelist()  # OKF bundle-root manifest
 
 
+def test_download_names_the_zip_from_the_bundle_name(client):
+    resp = client.post(
+        "/api/download", json={"name": "Acme Sales Warehouse", "tables": [OKF_TABLE_PAYLOAD]}
+    )
+    assert resp.status_code == 200
+    assert "acme-sales-warehouse.zip" in resp.headers["content-disposition"]
+
+
 def test_download_rejects_invalid_bundle_with_422(client):
     bad = {"tables": [{**OKF_TABLE_PAYLOAD, "confidence": 5}]}
     assert client.post("/api/download", json=bad).status_code == 422

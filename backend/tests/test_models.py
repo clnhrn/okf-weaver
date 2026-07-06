@@ -86,6 +86,17 @@ def test_okf_bundle_valid_construction_defaults_to_current_version():
     assert bundle.okf_version == OKF_SPEC_VERSION
 
 
+def test_okf_bundle_name_defaults_and_is_trimmed():
+    assert OKFBundle(tables=[_okf_table()]).name == "OKF Bundle"
+    assert OKFBundle(name="  Acme  Sales\nWarehouse ", tables=[_okf_table()]).name == (
+        "Acme Sales Warehouse"
+    )
+
+
+def test_okf_bundle_blank_name_falls_back_to_default():
+    assert OKFBundle(name="   ", tables=[_okf_table()]).name == "OKF Bundle"
+
+
 def test_okf_bundle_rejects_wrong_okf_version():
     with pytest.raises(ValidationError):
         OKFBundle(okf_version="9.9", tables=[_okf_table()])
