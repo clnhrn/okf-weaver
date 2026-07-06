@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-`docs/` holds the tracked design set — `spec.md` (architecture + AI module + acceptance criteria, the authoritative source), `PRD.md` (product scope), `idea-validation-report.md` (market validation). The `backend/` (FastAPI + Pydantic + Anthropic generation) and `frontend/` (Next.js) are implemented with a passing backend suite (`cd backend && uv run pytest`) and a clean `next build`. When code and spec disagree, treat `docs/spec.md` as the source of truth and update it alongside the code. (The assignment brief lives untracked under `archive/`, which is gitignored.)
+`docs/` holds the tracked design set — `spec.md` (architecture + AI module + acceptance criteria, the authoritative source) and `guide.md` (user guide). The `backend/` (FastAPI + Pydantic + Anthropic generation) and `frontend/` (Next.js) are implemented with a passing backend suite (`cd backend && uv run pytest`) and a clean `next build`. When code and spec disagree, treat `docs/spec.md` as the source of truth and update it alongside the code. (The assignment brief and other working materials live untracked under `archive/`, which is gitignored.)
 
 ## What this is
 

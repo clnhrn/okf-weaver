@@ -1,6 +1,6 @@
 # OKF Weaver — User Guide
 
-OKF Weaver turns a **relational database schema** into a curated, validated, portable **Open Knowledge Format (OKF)** bundle: machine-readable context describing what every table and column actually means. It works for analytics warehouses (Snowflake, BigQuery, Databricks) **and** operational databases (Postgres, SQL Server, MySQL) — including the ones you inherited and nobody documented.
+OKF Weaver turns a **relational database schema** into a curated, validated, portable **Open Knowledge Format (OKF)** bundle: machine-readable context describing what every table and column actually means. It works for analytics warehouses (Snowflake, BigQuery, Databricks) **and** operational databases (Postgres, SQL Server, MySQL) — whether you inherited one nobody documented, or you're getting ahead of it and building AI-ready foundations from the start.
 
 You give it a schema; it generates business descriptions and definitions per table/column with a confidence score, you review and edit, and you export a portable bundle you can hand to an AI agent, an MCP server, or a teammate.
 

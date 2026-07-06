@@ -2,7 +2,6 @@
 
 **Product:** OKF Weaver
 **Scope:** v1 / MVP — ingest a schema, generate + validate an OKF bundle, review, download.
-**Companion docs:** [PRD.md](./PRD.md), [idea-validation-report.md](./idea-validation-report.md)
 **Date:** 2026-07-05
 
 ---
@@ -11,7 +10,7 @@
 
 **AI capability: Generation.** The core AI feature generates curated OKF context (table/column business definitions, source-of-truth hints) from a schema — it produces new semantic content, not a summary, search, or classification of existing text.
 
-OKF Weaver turns any **relational database** schema into a curated, validated, portable **Open Knowledge Format (OKF)** bundle — a data warehouse (Snowflake/BigQuery/Databricks) or an operational RDBMS (Postgres, SQL Server, MySQL) that an engineer inherited and nobody documented. The MVP is a stateless request/response web app: the user supplies raw SQL DDL (e.g. a `pg_dump`/SSMS export) or a dbt `manifest.json`, an LLM generates OKF context, the output is validated against the OKF spec, the user reviews/edits, and downloads the bundle. No persistence, no accounts, no live database connections (see PRD §5).
+OKF Weaver turns any **relational database** schema into a curated, validated, portable **Open Knowledge Format (OKF)** bundle — a data warehouse (Snowflake/BigQuery/Databricks) or an operational RDBMS (Postgres, SQL Server, MySQL) — one an engineer inherited and nobody documented, or a new/thinly-documented one a team wants to make AI-ready from the start. The MVP is a stateless request/response web app: the user supplies raw SQL DDL (e.g. a `pg_dump`/SSMS export) or a dbt `manifest.json`, an LLM generates OKF context, the output is validated against the OKF spec, the user reviews/edits, and downloads the bundle. No persistence, no accounts, no live database connections (see PRD §5).
 
 **Inputs → Outputs (at a glance):**
 
