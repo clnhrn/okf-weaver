@@ -27,8 +27,6 @@ schema (SQL DDL | dbt manifest.json)
 ```
 
 Full detail: [`docs/spec.md`](docs/spec.md).
-Product scope: [`docs/PRD.md`](docs/PRD.md).
-Market/validation: [`docs/idea-validation-report.md`](docs/idea-validation-report.md).
 
 **AI capability:** generation — schema in, curated OKF context out.
 
@@ -73,6 +71,4 @@ Secrets live in the platform dashboards (env vars), never in the repo.
 ## Documentation
 
 - [`docs/guide.md`](docs/guide.md) — **user guide**: export a schema from your database, generate a bundle, and use/organize it
-- [`docs/PRD.md`](docs/PRD.md) — product requirements
 - [`docs/spec.md`](docs/spec.md) — architecture, AI module design, and acceptance criteria
-- [`docs/idea-validation-report.md`](docs/idea-validation-report.md) — market validation (problem, users, market, competition, why-now)
