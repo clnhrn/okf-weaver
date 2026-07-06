@@ -350,17 +350,25 @@ def test_rate_limit_buckets_are_per_forwarded_client_ip(client):
     assert hit("2.2.2.2") == 200  # client B has its own fresh bucket
 
 
-def test_forwarded_for_uses_client_not_intermediate_proxies(client):
-    # The originating client is the leftmost X-Forwarded-For entry; appended
-    # proxy hops must not change the bucket for a given client.
+def test_forwarded_for_spoofed_prefix_cannot_escape_rate_limit(client):
+    # A caller can prepend arbitrary values to X-Forwarded-For, but our trusted
+    # edge (Render) appends the true socket peer as the *rightmost* entry, which
+    # the caller can't forge. Keying off the rightmost entry means rotating the
+    # spoofable prefix does not mint fresh buckets: same real client, one bucket,
+    # limit still bites. Keying off the leftmost would let it escape entirely. H2.
     body = {"format": "sql", "content": DDL}
-    a1 = client.post(
-        "/api/ingest", json=body, headers={"X-Forwarded-For": "9.9.9.9, 10.0.0.1"}
-    ).status_code
-    a2 = client.post(
-        "/api/ingest", json=body, headers={"X-Forwarded-For": "9.9.9.9, 10.0.0.2"}
-    ).status_code
-    assert a1 == 200 and a2 == 200  # same client, different downstream proxy
+
+    def hit(spoofed_prefix):
+        # "3.3.3.3" stands in for the real IP the edge appends; only it counts.
+        return client.post(
+            "/api/ingest",
+            json=body,
+            headers={"X-Forwarded-For": f"{spoofed_prefix}, 3.3.3.3"},
+        ).status_code
+
+    codes = [hit(f"10.0.0.{i}") for i in range(31)]
+    assert codes.count(200) == 30  # one real client, one 30/minute bucket
+    assert codes[-1] == 429  # rotating the spoofed prefix bought no new bucket
 
 
 def test_health_is_not_rate_limited(client):
