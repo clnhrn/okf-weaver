@@ -6,12 +6,14 @@ export default function ConfirmModal({
   title,
   message,
   confirmLabel = "Confirm",
+  tone = "danger",
   onConfirm,
   onCancel,
 }: {
   title: string;
   message: string;
   confirmLabel?: string;
+  tone?: "danger" | "neutral";
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -46,7 +48,11 @@ export default function ConfirmModal({
           <button className="ghost-btn" onClick={onCancel}>
             Cancel
           </button>
-          <button ref={confirmRef} className="primary danger" onClick={onConfirm}>
+          <button
+            ref={confirmRef}
+            className={tone === "danger" ? "primary danger" : "primary"}
+            onClick={onConfirm}
+          >
             {confirmLabel}
           </button>
         </div>

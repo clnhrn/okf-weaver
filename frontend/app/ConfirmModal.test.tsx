@@ -37,6 +37,16 @@ describe("ConfirmModal", () => {
     expect(html).toContain(">Cancel<");
   });
 
+  it("uses danger styling by default", () => {
+    const html = render();
+    expect(html).toContain("primary danger");
+  });
+
+  it("uses plain primary styling when tone is neutral, not danger red", () => {
+    const html = render({ tone: "neutral" });
+    expect(html).not.toContain("danger");
+  });
+
   it("wires alertdialog semantics so screen readers announce it as a prompt, not a generic panel", () => {
     const html = render();
     expect(html).toContain('role="alertdialog"');

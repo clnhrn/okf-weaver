@@ -119,6 +119,19 @@ body {
   letter-spacing: 0.04em;
 }
 
+/* ---- theme toggle: icon-only 3-way seg, always visible ---- */
+.theme-seg svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.theme-seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem 0.45rem;
+}
+
 /* ---- workspace: source | seam | bundle ---- */
 .workspace {
   flex: 1 1 auto;

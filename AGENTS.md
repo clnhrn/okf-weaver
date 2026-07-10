@@ -17,7 +17,7 @@ Backend (`backend/`, managed with `uv` — never use bare `pip`/`uv pip`):
 ```bash
 cd backend
 uv sync                                   # install/sync deps
-uv run uvicorn okf_weaver.main:app --reload   # run API (needs ANTHROPIC_API_KEY)
+uv run --env-file .env uvicorn okf_weaver.main:app --reload   # run API (needs ANTHROPIC_API_KEY)
 uv run pytest                             # all tests
 uv run pytest tests/test_models.py        # one file
 uv run pytest tests/test_models.py::test_name -q   # one test
@@ -32,7 +32,7 @@ npm run dev        # dev server
 npm run build      # production build (also what CI runs)
 ```
 
-`ANTHROPIC_API_KEY` is required by the backend and lives server-side only. `OKF_MODEL_ID` overrides the model (default `claude-sonnet-4-6`).
+`ANTHROPIC_API_KEY` is required by the backend and lives server-side only, in `backend/.env` — `uv run` does not auto-load it, so the `--env-file .env` flag above is required or generation fails with no key set. `OKF_MODEL_ID` overrides the model (default `claude-sonnet-4-6`).
 
 ## Architecture
 
