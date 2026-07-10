@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import BundleTree from "./BundleTree";
 import CodeEditor from "./CodeEditor";
+import ConfirmModal from "./ConfirmModal";
 import FileTree from "./FileTree";
 import MarkdownView from "./MarkdownView";
 import ErdView from "./ErdView";
@@ -13,6 +14,13 @@ import { useTheme, type ThemeChoice } from "./useTheme";
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
 type Phase = "idle" | "generating" | "done" | "error";
+
+// Actions that overwrite the pasted schema and/or the generated bundle get
+// routed through this so we can confirm before discarding unsaved work.
+type ConfirmAction =
+  | { kind: "reset" }
+  | { kind: "upload"; file: File }
+  | { kind: "example"; which: "sql" | "json" };
 
 export default function Home() {
   const [content, setContent] = useState("");
@@ -32,6 +40,7 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState("index.md");
   const [fileMode, setFileMode] = useState<"rendered" | "raw">("rendered");
   const [split, setSplit] = useState(50); // left pane width, % of the workspace
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const { choice: themeChoice, setChoice: setThemeChoice, resolved: themeMode } = useTheme();
 
@@ -73,19 +82,77 @@ export default function Home() {
     e.preventDefault();
   }
 
-  async function onFile(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // True once there's pasted content or an already-generated bundle that a
+  // content-replacing action (New / Upload / Load example) would discard.
+  function hasUnsavedWork() {
+    return content.trim().length > 0 || tables.length > 0;
+  }
+
+  // Shared by every action that replaces the source: the previously
+  // generated bundle no longer matches the new content, so drop it rather
+  // than leave a stale bundle sitting behind an enabled Download button.
+  function clearGeneratedBundle() {
+    setTables([]);
+    setPartials({});
+    setExpected([]);
+    setWarnings([]);
+    setPhase("idle");
+    setError(null);
+    setView("edit");
+    setFiles(null);
+    setSelectedFile("index.md");
+    setFileMode("rendered");
+  }
+
+  async function applyUpload(file: File) {
     setContent(await file.text());
     setFileName(file.name);
     // Suggest a bundle name from the filename (editable); user can override.
     if (!name.trim()) setName(file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "));
+    clearGeneratedBundle();
+  }
+
+  function applyExample(which: "sql" | "json") {
+    setContent(which === "sql" ? EXAMPLE_SQL : EXAMPLE_MANIFEST);
+    setFileName(null);
+    clearGeneratedBundle();
+  }
+
+  async function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
     e.target.value = "";
+    if (!file) return;
+    if (hasUnsavedWork()) setConfirmAction({ kind: "upload", file });
+    else await applyUpload(file);
   }
 
   function loadExample(which: "sql" | "json") {
-    setContent(which === "sql" ? EXAMPLE_SQL : EXAMPLE_MANIFEST);
+    if (hasUnsavedWork()) setConfirmAction({ kind: "example", which });
+    else applyExample(which);
+  }
+
+  function requestReset() {
+    if (hasUnsavedWork()) setConfirmAction({ kind: "reset" });
+    else reset();
+  }
+
+  function reset() {
+    setConfirmAction(null);
+    setContent("");
+    setContext("");
+    setShowContext(false);
     setFileName(null);
+    setName("");
+    clearGeneratedBundle();
+  }
+
+  async function confirmPendingAction() {
+    const action = confirmAction;
+    if (!action) return;
+    setConfirmAction(null);
+    if (action.kind === "reset") reset();
+    else if (action.kind === "upload") await applyUpload(action.file);
+    else applyExample(action.which);
   }
 
   async function generate() {
@@ -251,6 +318,14 @@ export default function Home() {
               {content.trim() ? format : "—"}
             </span>
             <span className="grow" />
+            <button
+              className="ghost-btn"
+              onClick={requestReset}
+              disabled={!hasUnsavedWork() && phase === "idle"}
+              title="Clear the schema and bundle to start over"
+            >
+              New
+            </button>
             <label className="ghost-btn">
               Upload
               <input type="file" accept=".sql,.json,.txt" onChange={onFile} className="vh" />
@@ -369,7 +444,7 @@ export default function Home() {
               />
             )}
             <button className="primary" onClick={download} disabled={!canDownload}>
-              Approve &amp; download .zip
+              Download OKF Bundle (.zip)
             </button>
           </div>
 
@@ -465,8 +540,39 @@ export default function Home() {
         <span className="grow" />
         <span className="muted">OKF v{okfVersion}</span>
       </footer>
+
+      {confirmAction && (
+        <ConfirmModal
+          {...confirmCopy(confirmAction)}
+          onConfirm={confirmPendingAction}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   );
+}
+
+function confirmCopy(action: ConfirmAction): { title: string; message: string; confirmLabel: string } {
+  switch (action.kind) {
+    case "reset":
+      return {
+        title: "Clear schema and bundle?",
+        message: "This clears the pasted schema, context, and generated bundle. This can't be undone.",
+        confirmLabel: "Clear",
+      };
+    case "upload":
+      return {
+        title: "Replace with uploaded file?",
+        message: `This replaces the current schema with "${action.file.name}" and discards the generated bundle. This can't be undone.`,
+        confirmLabel: "Replace",
+      };
+    case "example":
+      return {
+        title: "Load the example schema?",
+        message: "This replaces the current schema with the example and discards the generated bundle. This can't be undone.",
+        confirmLabel: "Load example",
+      };
+  }
 }
 
 async function readSSE(

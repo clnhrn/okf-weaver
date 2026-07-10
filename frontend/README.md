@@ -1,7 +1,7 @@
 # OKF Weaver — frontend
 
 Next.js (App Router) thin client: paste a schema, stream generation, review with
-confidence badges, approve and download the OKF `.zip`. All logic lives in the
+confidence badges, download the OKF bundle `.zip`. All logic lives in the
 backend; this only calls the API.
 
 ## Develop
