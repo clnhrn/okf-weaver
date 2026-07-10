@@ -5,22 +5,26 @@ import BundleTree from "./BundleTree";
 import CodeEditor from "./CodeEditor";
 import ConfirmModal from "./ConfirmModal";
 import FileTree from "./FileTree";
+import ThemeToggle from "./ThemeToggle";
 import MarkdownView from "./MarkdownView";
 import ErdView from "./ErdView";
 import { EXAMPLE_MANIFEST, EXAMPLE_SQL } from "./examples";
 import type { Bundle, OKFColumn, OKFTable } from "./types";
-import { useTheme, type ThemeChoice } from "./useTheme";
+import { useTheme } from "./useTheme";
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
 type Phase = "idle" | "generating" | "done" | "error";
 
-// Actions that overwrite the pasted schema and/or the generated bundle get
-// routed through this so we can confirm before discarding unsaved work.
+// Actions that need a user's explicit go-ahead before proceeding — either
+// because they'd discard unsaved work (reset/upload/example), or because
+// skipping them measurably lowers output quality (generating without
+// context) — are routed through this so we can confirm first.
 type ConfirmAction =
   | { kind: "reset" }
   | { kind: "upload"; file: File }
-  | { kind: "example"; which: "sql" | "json" };
+  | { kind: "example"; which: "sql" | "json" }
+  | { kind: "generate-without-context" };
 
 export default function Home() {
   const [content, setContent] = useState("");
@@ -152,10 +156,26 @@ export default function Home() {
     setConfirmAction(null);
     if (action.kind === "reset") reset();
     else if (action.kind === "upload") await applyUpload(action.file);
-    else applyExample(action.which);
+    else if (action.kind === "example") applyExample(action.which);
+    else await runGenerate();
   }
 
-  async function generate() {
+  function cancelPendingAction() {
+    // Declining the context nudge should lead somewhere useful, not just
+    // close the dialog — surface the panel the user was just told to fill in.
+    if (confirmAction?.kind === "generate-without-context") setShowContext(true);
+    setConfirmAction(null);
+  }
+
+  function generate() {
+    if (context.trim() === "") {
+      setConfirmAction({ kind: "generate-without-context" });
+      return;
+    }
+    void runGenerate();
+  }
+
+  async function runGenerate() {
     setPhase("generating");
     setError(null);
     setTables([]);
@@ -288,21 +308,9 @@ export default function Home() {
         <span className="wordmark">
           OKF <span className="wordmark-accent">Weaver</span>
         </span>
-        <span className="tagline mono">schema → OKF v{okfVersion} bundle</span>
+        <span className="tagline mono">context + DDL → OKF v{okfVersion} bundle</span>
         <span className="grow" />
-        <div className="seg small theme-seg" role="group" aria-label="Theme">
-          {(["light", "system", "dark"] as ThemeChoice[]).map((opt) => (
-            <button
-              key={opt}
-              className={themeChoice === opt ? "on" : ""}
-              aria-pressed={themeChoice === opt}
-              onClick={() => setThemeChoice(opt)}
-              title={`${opt[0].toUpperCase()}${opt.slice(1)} theme`}
-            >
-              {opt === "system" ? "Auto" : opt === "light" ? "Light" : "Dark"}
-            </button>
-          ))}
-        </div>
+        <ThemeToggle choice={themeChoice} onChange={setThemeChoice} />
       </header>
 
       <main
@@ -346,7 +354,7 @@ export default function Home() {
             <button className="ctx-toggle" onClick={() => setShowContext((s) => !s)}>
               {showContext ? "▾" : "▸"} Context
               <span className="muted">
-                {context.trim() ? " · added" : " (optional — improves accuracy)"}
+                {context.trim() ? " · added" : " (optional — sharpens definitions on ambiguous columns)"}
               </span>
             </button>
             {showContext && (
@@ -432,20 +440,6 @@ export default function Home() {
               </div>
             )}
             <span className="grow" />
-            {phase === "done" && (
-              <input
-                className="bundle-name"
-                value={name}
-                spellCheck={false}
-                aria-label="Bundle name"
-                placeholder="Name this bundle"
-                title="Names the .zip and the bundle's index.md"
-                onChange={(e) => setName(e.target.value)}
-              />
-            )}
-            <button className="primary" onClick={download} disabled={!canDownload}>
-              Download OKF Bundle (.zip)
-            </button>
           </div>
 
           <div className="bundle-body">
@@ -532,6 +526,24 @@ export default function Home() {
               </>
             )}
           </div>
+
+          {phase === "done" && (
+            <div className="pane-foot">
+              <span className="grow" />
+              <input
+                className="bundle-name"
+                value={name}
+                spellCheck={false}
+                aria-label="Bundle name"
+                placeholder="Name this bundle"
+                title="Names the .zip and the bundle's index.md"
+                onChange={(e) => setName(e.target.value)}
+              />
+              <button className="primary" onClick={download} disabled={!canDownload}>
+                Download OKF Bundle (.zip)
+              </button>
+            </div>
+          )}
         </section>
       </main>
 
@@ -545,14 +557,16 @@ export default function Home() {
         <ConfirmModal
           {...confirmCopy(confirmAction)}
           onConfirm={confirmPendingAction}
-          onCancel={() => setConfirmAction(null)}
+          onCancel={cancelPendingAction}
         />
       )}
     </div>
   );
 }
 
-function confirmCopy(action: ConfirmAction): { title: string; message: string; confirmLabel: string } {
+function confirmCopy(
+  action: ConfirmAction,
+): { title: string; message: string; confirmLabel: string; tone?: "danger" | "neutral" } {
   switch (action.kind) {
     case "reset":
       return {
@@ -571,6 +585,14 @@ function confirmCopy(action: ConfirmAction): { title: string; message: string; c
         title: "Load the example schema?",
         message: "This replaces the current schema with the example and discards the generated bundle. This can't be undone.",
         confirmLabel: "Load example",
+      };
+    case "generate-without-context":
+      return {
+        title: "Generate without context?",
+        message:
+          "No context added — this schema will be documented from structure alone, and definitions on ambiguous columns will score lower confidence. Add context first, or continue anyway.",
+        confirmLabel: "Generate anyway",
+        tone: "neutral",
       };
   }
 }
