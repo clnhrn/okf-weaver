@@ -61,12 +61,12 @@ Skip the export — upload your `target/manifest.json` directly. Existing dbt `d
 
 ## 2. Generate and review
 
-> **Just want to try it?** Ready-made sample exports live in [`examples/`](../examples): [`schema-postgres.sql`](../examples/schema-postgres.sql), [`schema-sqlserver.sql`](../examples/schema-sqlserver.sql), and [`schema-mysql.sql`](../examples/schema-mysql.sql) — a small shop schema (`customers`, `products`, `orders`, `order_items`) in each real dump format. Upload any of them to see generation and the ERD without touching your own database.
+> **Just want to try it?** The empty Source pane has **Load example** buttons (a small `schema.sql` / `manifest.json` pair) so you can see generation and the ERD without touching your own database. Separately, ready-made sample exports for each dialect live in [`examples/`](../examples): [`schema-postgres.sql`](../examples/schema-postgres.sql), [`schema-sqlserver.sql`](../examples/schema-sqlserver.sql), and [`schema-mysql.sql`](../examples/schema-mysql.sql) — a small shop schema (`customers`, `products`, `orders`, `order_items`) in each real dump format — upload one of these to see a specific dump format parse.
 
-1. **Paste** the DDL into the **Source** pane, or **Upload** your `.sql` / `manifest.json`. The format is auto-detected.
-2. *(Optional but recommended)* Expand **Context** and add domain notes or a glossary — e.g. *"revenue = net of tax and refunds; `status` ∈ {pending, shipped, cancelled}"*. This is the single biggest accuracy lever and lifts confidence on ambiguous columns.
-3. Click **Generate**. Tables stream in as they're written, each column filling in live.
-4. **Review** — every field is color-coded by confidence (High ≥ 0.8 / Medium / Low < 0.5) so low-confidence items stand out for review. Edit any description inline, toggle primary-key / source-of-truth, and fix types. **Nothing is final until you approve it** — human review is the point.
+1. **Paste** the DDL into the **Source** pane, or **Upload** your `.sql` / `manifest.json`. The format is auto-detected. The **New** button clears the pane to start over; if you have unsaved schema or a generated bundle, New, Upload, and Load example all ask you to confirm before discarding it.
+2. *(Optional but recommended)* Expand **Context** and add domain notes or a glossary — e.g. *"revenue = net of tax and refunds; `status` ∈ {pending, shipped, cancelled}"*. This is the single biggest accuracy lever and lifts confidence on ambiguous columns. If you click **Generate** with no context added, a dialog nudges you to add some first; decline it and the Context panel opens for you.
+3. Tables stream in as they're written, each column filling in live, under the **Edit** tab.
+4. **Edit tab** — every field is color-coded by confidence (High ≥ 0.8 / Medium / Low < 0.5) so low-confidence items stand out for review. Edit any description inline, toggle primary-key / source-of-truth, and fix types. **Nothing is final until you download it** — human review is the point.
 5. **ERD tab** — see the tables and their foreign-key relationships as a diagram, a quick way to sanity-check that the relationships came through and to understand the schema's shape.
 6. **Files tab** — preview the exact OKF markdown the download will contain (toggle Rendered / Raw).
 
@@ -74,7 +74,7 @@ Skip the export — upload your `target/manifest.json` directly. Existing dbt `d
 
 ## 3. Use and organize the bundle
 
-Click **Approve & download** to get a conformant OKF v0.1 directory as a `.zip` (named after your bundle, e.g. `schema-postgres.zip`):
+Click **Download OKF Bundle (.zip)** to get a conformant OKF v0.1 directory as a `.zip` (named after your bundle, e.g. `schema-postgres.zip`):
 
 ```text
 okf-bundle/
