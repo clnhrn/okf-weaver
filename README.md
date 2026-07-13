@@ -62,10 +62,9 @@ npm run dev                # http://localhost:3000
 | `ANTHROPIC_API_KEY`    | Claude API key (backend only)                                       | — (required)        |
 | `OKF_MODEL_ID`         | Claude model id                                                     | `claude-sonnet-4-6` |
 | `OKF_ALLOWED_ORIGINS`  | Comma-separated browser origins allowed by CORS                     | Vercel app + localhost |
-| `OKF_DAILY_BUDGET_USD` | Estimated-spend ceiling per 24h window; `/generate` refuses above it (`0`/unset disables) | `0` (disabled) |
 | `NEXT_PUBLIC_API_BASE` | Backend origin the frontend calls (also drives the CSP `connect-src`) | `http://127.0.0.1:8000` |
 
-For a public deployment, set `OKF_DAILY_BUDGET_USD` (the app-level cost-DoS backstop) **and** a hard spend limit on the API key in the Anthropic Console — the latter is the ultimate wallet guarantee since a stateless, account-less service can't bind abuse to a single user.
+For a public deployment, set a hard spend limit on the API key in the Anthropic Console — the ultimate wallet guarantee, since a stateless, account-less service can't bind abuse to a single user.
 
 ## Deployment
 
