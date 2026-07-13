@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from okf_weaver import budget
 from okf_weaver.main import app, get_client, limiter
 
 DDL = "CREATE TABLE orders (id INTEGER PRIMARY KEY, total NUMERIC(12,2));"
@@ -68,17 +67,6 @@ def _reset_limiter():
     # Isolate per-IP rate-limit counters so tests don't bleed into each other.
     limiter.reset()
     yield
-
-
-@pytest.fixture(autouse=True)
-def _reset_budget():
-    # Keep the process-wide spend guard disabled + empty across tests unless a
-    # test opts in; otherwise accumulated spend would bleed between tests.
-    budget.guard.budget_usd = 0
-    budget.guard.reset()
-    yield
-    budget.guard.budget_usd = 0
-    budget.guard.reset()
 
 
 @pytest.fixture
@@ -214,53 +202,6 @@ def test_generate_error_event_hides_internals_and_logs_them(client, caplog):
         # The full detail (and the same id) is captured server-side instead.
         logged = "\n".join(r.getMessage() for r in caplog.records)
         assert error["error_id"] in logged
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_generate_refuses_when_spend_ceiling_reached(client, caplog):
-    # H1 backstop: once the window's budget is exhausted, generation is refused
-    # with a generic capacity message (no budget internals) and no work is done.
-    budget.guard.budget_usd = 1.0
-    budget.guard.record(1.0)  # exhaust the window
-    app.dependency_overrides[get_client] = lambda: FakeClient(_tool_use(OKF_TABLE_PAYLOAD))
-    try:
-        schema = {
-            "source_format": "sql",
-            "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
-        }
-        caplog.set_level(logging.WARNING)
-        resp = client.post("/api/generate", json={"schema": schema})
-        assert resp.status_code == 200  # SSE stream carries the refusal
-        events = _parse_sse(resp.text)
-        kinds = [e for e, _ in events]
-        assert kinds == ["error"]  # refused up front: no token/table/done
-        error = events[0][1]
-        assert "capacity" in error["message"].lower()
-        assert "$" not in error["message"]  # ceiling not disclosed to the client
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_generate_records_estimated_spend_against_the_ceiling(client):
-    # A successful run debits the window budget by its estimated cost.
-    budget.guard.budget_usd = 100.0
-    usage = SimpleNamespace(
-        input_tokens=1_000_000, output_tokens=0,
-        cache_read_input_tokens=0, cache_creation_input_tokens=0,
-    )
-    app.dependency_overrides[get_client] = lambda: FakeClient(
-        _tool_use(OKF_TABLE_PAYLOAD, usage=usage)
-    )
-    try:
-        schema = {
-            "source_format": "sql",
-            "tables": [{"name": "orders", "columns": [{"name": "id", "data_type": "int"}]}],
-        }
-        resp = client.post("/api/generate", json={"schema": schema})
-        assert resp.status_code == 200
-        # 1M input tokens at $3/M => ~$3 debited; remaining drops below the cap.
-        assert budget.guard.remaining() == pytest.approx(97.0, abs=0.5)
     finally:
         app.dependency_overrides.clear()
 

@@ -22,7 +22,6 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from okf_weaver import budget
 from okf_weaver.ai import generate_bundle, make_client
 from okf_weaver.ai.generate import DEFAULT_MODEL, usage_summary
 from okf_weaver.ingest import detect_format, parse_dbt_manifest, parse_sql_ddl
@@ -146,14 +145,6 @@ def generate(
         tables = []
         usage: dict[str, int] = {}
         try:
-            # Cost-DoS backstop: refuse before spending tokens if the process-wide
-            # spend ceiling for this window is already reached (H1).
-            budget.guard.ensure_available()
-        except budget.BudgetExceeded as exc:
-            logger.warning("generation refused: spend ceiling reached")
-            yield _sse("error", {"message": str(exc)})
-            return
-        try:
             for kind, name, payload in generate_bundle(
                 schema, client=client, context=body.context, usage=usage
             ):
@@ -168,8 +159,6 @@ def generate(
             # internals). The id ties a user report back to the server log.
             error_id = uuid.uuid4().hex[:12]
             logger.exception("generate failed (error_id=%s)", error_id)
-            # A partial run still spent tokens; debit what completed before failing.
-            budget.guard.record(usage_summary(usage, DEFAULT_MODEL)["estimated_cost_usd"])
             yield _sse(
                 "error",
                 {"message": "Generation failed. Please try again.", "error_id": error_id},
@@ -182,8 +171,6 @@ def generate(
         # Token/cost usage is tracked in backend logs only, never sent to the client.
         summary = usage_summary(usage, DEFAULT_MODEL)
         logger.info("generate usage: %s", summary)
-        # Debit the window's spend ceiling by this run's estimated cost (H1).
-        budget.guard.record(summary["estimated_cost_usd"])
         yield _sse(
             "done",
             {
